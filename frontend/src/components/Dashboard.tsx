@@ -1,0 +1,180 @@
+import { useMemo } from "react";
+import { Book, ReportSummary } from "../types";
+import { currency } from "../utils";
+
+interface DashboardProps {
+  books: Book[];
+  report: ReportSummary;
+}
+
+export const Dashboard = ({ books, report }: DashboardProps) => {
+  const lowStockBooks = useMemo(
+    () => books.filter((book) => book.stockStatus !== "in-stock"),
+    [books]
+  );
+
+  const inventoryByCategory = useMemo(() => {
+    return books.reduce<Record<string, number>>((result, book) => {
+      result[book.category] = (result[book.category] ?? 0) + book.stock;
+      return result;
+    }, {});
+  }, [books]);
+
+  const topMarginBooks = useMemo(
+    () => [...books].sort((left, right) => right.potentialProfit - left.potentialProfit).slice(0, 5),
+    [books]
+  );
+
+  return (
+    <>
+      <section className="stats-grid stats-grid-wide">
+        <article className="stat-card">
+          <span>Total products</span>
+          <strong>{report.inventory.totalProducts}</strong>
+        </article>
+        <article className="stat-card">
+          <span>Total units</span>
+          <strong>{report.inventory.totalStock}</strong>
+        </article>
+        <article className="stat-card">
+          <span>Stock cost value</span>
+          <strong>{currency.format(report.inventory.totalCostValue)}</strong>
+        </article>
+        <article className="stat-card">
+          <span>Stock sale value</span>
+          <strong>{currency.format(report.inventory.totalSalesValue)}</strong>
+        </article>
+        <article className="stat-card">
+          <span>Gross margin</span>
+          <strong>{currency.format(report.inventory.totalPotentialProfit)}</strong>
+        </article>
+        <article className="stat-card">
+          <span>Sale records</span>
+          <strong>{report.orders.totalOrders}</strong>
+        </article>
+        <article className="stat-card">
+          <span>Net sales</span>
+          <strong>{currency.format(report.orders.netSales)}</strong>
+        </article>
+        <article className="stat-card warning">
+          <span>Low stock</span>
+          <strong>{report.inventory.lowStock}</strong>
+        </article>
+        <article className="stat-card danger">
+          <span>Out of stock</span>
+          <strong>{report.inventory.outOfStock}</strong>
+        </article>
+      </section>
+
+      <section className="two-column-grid">
+        <article className="panel">
+          <div className="panel-header">
+            <div>
+              <p className="section-label">Finance</p>
+              <h2>Sales performance</h2>
+            </div>
+          </div>
+
+          <div className="stack-list">
+            <div className="stack-row">
+              <span>Gross sales</span>
+              <strong>{currency.format(report.orders.grossSales)}</strong>
+            </div>
+            <div className="stack-row">
+              <span>Total discount</span>
+              <strong>{currency.format(report.orders.totalDiscount)}</strong>
+            </div>
+            <div className="stack-row">
+              <span>Net sales</span>
+              <strong>{currency.format(report.finance.actualNetSales)}</strong>
+            </div>
+            <div className="stack-row">
+              <span>Expenses</span>
+              <strong>{currency.format(report.expenses.totalExpense)}</strong>
+            </div>
+            <div className="stack-row">
+              <span>Net after expenses</span>
+              <strong
+                className={
+                  report.finance.actualNetAfterExpense >= 0 ? "profit-positive" : "profit-negative"
+                }
+              >
+                {currency.format(report.finance.actualNetAfterExpense)}
+              </strong>
+            </div>
+          </div>
+        </article>
+
+        <article className="panel">
+          <div className="panel-header">
+            <div>
+              <p className="section-label">Restock</p>
+              <h2>Items needing attention</h2>
+            </div>
+          </div>
+
+          {lowStockBooks.length === 0 ? (
+            <div className="empty-state compact">No low stock or out of stock items.</div>
+          ) : (
+            <div className="stack-list">
+              {lowStockBooks.slice(0, 5).map((book) => (
+                <div className="stack-row" key={book.id}>
+                  <span>
+                    {book.title} - {book.category}
+                  </span>
+                  <strong>{book.stock} left</strong>
+                </div>
+              ))}
+            </div>
+          )}
+        </article>
+      </section>
+
+      <section className="two-column-grid">
+        <article className="panel">
+          <div className="panel-header">
+            <div>
+              <p className="section-label">Best margin</p>
+              <h2>Top earning products</h2>
+            </div>
+          </div>
+
+          {topMarginBooks.length === 0 ? (
+            <div className="empty-state compact">No product data yet.</div>
+          ) : (
+            <div className="stack-list">
+              {topMarginBooks.map((book) => (
+                <div className="stack-row" key={book.id}>
+                  <span>{book.title}</span>
+                  <strong>{currency.format(book.potentialProfit)}</strong>
+                </div>
+              ))}
+            </div>
+          )}
+        </article>
+
+        <article className="panel">
+          <div className="panel-header">
+            <div>
+              <p className="section-label">By category</p>
+              <h2>Inventory mix</h2>
+            </div>
+          </div>
+
+          {Object.keys(inventoryByCategory).length === 0 ? (
+            <div className="empty-state compact">No products yet.</div>
+          ) : (
+            <div className="stack-list">
+              {Object.entries(inventoryByCategory).map(([category, total]) => (
+                <div className="stack-row" key={category}>
+                  <span>{category}</span>
+                  <strong>{total} units</strong>
+                </div>
+              ))}
+            </div>
+          )}
+        </article>
+      </section>
+    </>
+  );
+};

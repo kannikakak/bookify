@@ -1,8 +1,10 @@
 import { ChangeEvent, FormEvent, useEffect, useMemo, useState } from "react";
 import {
+  addBookStock,
   createBook,
   createExpense,
-  createOrder,
+  createInvoice,
+  deleteInvoice,
   fetchBooks,
   fetchExpenses,
   fetchOrders,
@@ -10,17 +12,18 @@ import {
   updateBook
 } from "./api";
 import {
+  AddStockPayload,
   Book,
   CreateBookPayload,
   CreateExpensePayload,
-  CreateOrderPayload,
+  CreateInvoicePayload,
   Expense,
   Order,
   ReportSummary
 } from "./types";
 import "./styles.css";
 
-type Section = "dashboard" | "products" | "orders" | "stock" | "expenses" | "reports";
+type Section = "dashboard" | "products" | "orders" | "expenses" | "reports";
 type OrderPeriod = "daily" | "weekly" | "monthly" | "all";
 
 type BookFormState = {
@@ -46,6 +49,36 @@ type OrderFormState = {
   customerName: string;
   quantity: string;
   discount: string;
+  deliveryFee: string;
+};
+
+type InvoiceLineFormState = {
+  bookId: string;
+  quantity: string;
+  discount: string;
+};
+
+type InvoiceGroup = {
+  invoiceCode: string;
+  customerName: string;
+  orderedAt: string;
+  items: Order[];
+  deliveryFee: number;
+  subtotal: number;
+  discount: number;
+  cost: number;
+  profit: number;
+  total: number;
+};
+
+type InvoiceDraftLine = {
+  item: InvoiceLineFormState;
+  book: Book;
+  quantity: number;
+  discount: number;
+  subtotal: number;
+  cost: number;
+  total: number;
 };
 
 const initialBookForm: BookFormState = {
@@ -70,7 +103,8 @@ const initialOrderForm: OrderFormState = {
   bookId: "",
   customerName: "",
   quantity: "1",
-  discount: "0"
+  discount: "0",
+  deliveryFee: "0"
 };
 
 const currency = new Intl.NumberFormat("en-US", {
@@ -80,10 +114,10 @@ const currency = new Intl.NumberFormat("en-US", {
 });
 
 const orderPeriodLabels: Record<OrderPeriod, string> = {
-  daily: "Daily",
-  weekly: "Weekly",
-  monthly: "Monthly",
-  all: "All"
+  daily: "ប្រចាំថ្ងៃ",
+  weekly: "ប្រចាំសប្តាហ៍",
+  monthly: "ប្រចាំខែ",
+  all: "ទាំងអស់"
 };
 
 const getWeekStart = (date: Date) => {
@@ -125,19 +159,38 @@ const escapeHtml = (value: string) =>
     .replace(/"/g, "&quot;")
     .replace(/'/g, "&#039;");
 
+const parseCurrencyInput = (value: string) => Number(value.replace(/\$/g, "").trim());
+
+const escapeCsv = (value: string | number) => {
+  const text = String(value);
+  return /[",\n]/.test(text) ? `"${text.replace(/"/g, '""')}"` : text;
+};
+
+const downloadCsv = (filename: string, rows: Array<Array<string | number>>) => {
+  const csv = rows.map((row) => row.map(escapeCsv).join(",")).join("\n");
+  const blob = new Blob([csv], { type: "text/csv;charset=utf-8" });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = filename;
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  URL.revokeObjectURL(url);
+};
+
 const statusLabelMap: Record<Book["stockStatus"], string> = {
-  "in-stock": "In stock",
-  "low-stock": "Low stock",
-  "out-of-stock": "Out of stock"
+  "in-stock": "មានស្តុក",
+  "low-stock": "ស្តុកតិច",
+  "out-of-stock": "អស់ស្តុក"
 };
 
 const menuItems: Array<{ key: Section; label: string }> = [
-  { key: "dashboard", label: "Dashboard" },
-  { key: "products", label: "Item List" },
-  { key: "orders", label: "Sale List" },
-  { key: "stock", label: "Stocks" },
-  { key: "expenses", label: "Expenses" },
-  { key: "reports", label: "Reports" }
+  { key: "dashboard", label: "ផ្ទាំងគ្រប់គ្រង" },
+  { key: "products", label: "បញ្ជីសៀវភៅ" },
+  { key: "orders", label: "បញ្ជីលក់" },
+  { key: "expenses", label: "ចំណាយ" },
+  { key: "reports", label: "របាយការណ៍" }
 ];
 
 const emptyReport: ReportSummary = {
@@ -186,10 +239,12 @@ function App() {
   const [editingBookId, setEditingBookId] = useState<number | null>(null);
   const [showProductForm, setShowProductForm] = useState(false);
   const [orderForm, setOrderForm] = useState<OrderFormState>(initialOrderForm);
+  const [invoiceItems, setInvoiceItems] = useState<InvoiceLineFormState[]>([]);
   const [orderPeriod, setOrderPeriod] = useState<OrderPeriod>("daily");
   const [expenseForm, setExpenseForm] = useState<ExpenseFormState>(initialExpenseForm);
   const [loading, setLoading] = useState(true);
   const [bookSaving, setBookSaving] = useState(false);
+  const [stockAdjustingBookId, setStockAdjustingBookId] = useState<number | null>(null);
   const [orderSaving, setOrderSaving] = useState(false);
   const [expenseSaving, setExpenseSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -212,7 +267,7 @@ function App() {
       setOrders(ordersData);
       setReport(reportData);
     } catch (requestError) {
-      setError(requestError instanceof Error ? requestError.message : "Could not load the data.");
+      setError(requestError instanceof Error ? requestError.message : "មិនអាចទាញទិន្នន័យបានទេ។");
     } finally {
       setLoading(false);
     }
@@ -221,23 +276,6 @@ function App() {
   useEffect(() => {
     void loadAll();
   }, []);
-
-  const lowStockBooks = useMemo(
-    () => books.filter((book) => book.stockStatus !== "in-stock"),
-    [books]
-  );
-
-  const inventoryByCategory = useMemo(() => {
-    return books.reduce<Record<string, number>>((result, book) => {
-      result[book.category] = (result[book.category] ?? 0) + book.stock;
-      return result;
-    }, {});
-  }, [books]);
-
-  const topMarginBooks = useMemo(
-    () => [...books].sort((left, right) => right.potentialProfit - left.potentialProfit).slice(0, 5),
-    [books]
-  );
 
   const editingBook = useMemo(
     () => books.find((book) => book.id === editingBookId) ?? null,
@@ -254,31 +292,101 @@ function App() {
     [orders, orderPeriod]
   );
 
+  const filteredInvoices = useMemo<InvoiceGroup[]>(() => {
+    const groups = new Map<string, Order[]>();
+
+    filteredOrders.forEach((order) => {
+      const invoiceCode = order.invoiceCode || `INV-${order.id}`;
+      groups.set(invoiceCode, [...(groups.get(invoiceCode) ?? []), order]);
+    });
+
+    return [...groups.entries()]
+      .map(([invoiceCode, items]) => {
+        const first = items[0];
+        const subtotal = items.reduce((sum, item) => sum + item.unitSellPrice * item.quantity, 0);
+        const discount = items.reduce((sum, item) => sum + item.discount, 0);
+        const deliveryFee = items.reduce((sum, item) => sum + item.deliveryFee, 0);
+        const cost = items.reduce((sum, item) => sum + item.unitBuyPrice * item.quantity, 0);
+        const lineTotal = items.reduce((sum, item) => sum + item.totalAmount, 0);
+        const total = lineTotal + deliveryFee;
+
+        return {
+          invoiceCode,
+          customerName: first.customerName,
+          orderedAt: first.orderedAt,
+          items,
+          deliveryFee,
+          subtotal,
+          discount,
+          cost,
+          profit: lineTotal - cost,
+          total
+        };
+      })
+      .sort((left, right) => new Date(right.orderedAt).getTime() - new Date(left.orderedAt).getTime());
+  }, [filteredOrders]);
+
   const orderRecordSummary = useMemo(
     () =>
-      filteredOrders.reduce(
-        (summary, order) => ({
+      filteredInvoices.reduce(
+        (summary, invoice) => ({
           orderCount: summary.orderCount + 1,
-          soldUnits: summary.soldUnits + order.quantity,
-          grossSales: summary.grossSales + order.unitSellPrice * order.quantity,
-          totalDiscount: summary.totalDiscount + order.discount,
-          netSales: summary.netSales + order.totalAmount
+          soldUnits:
+            summary.soldUnits + invoice.items.reduce((sum, item) => sum + item.quantity, 0),
+          grossSales: summary.grossSales + invoice.subtotal,
+          totalDiscount: summary.totalDiscount + invoice.discount,
+          deliveryFee: summary.deliveryFee + invoice.deliveryFee,
+          cost: summary.cost + invoice.cost,
+          profit: summary.profit + invoice.profit,
+          netSales: summary.netSales + invoice.total
         }),
         {
           orderCount: 0,
           soldUnits: 0,
           grossSales: 0,
           totalDiscount: 0,
+          deliveryFee: 0,
+          cost: 0,
+          profit: 0,
           netSales: 0
         }
       ),
-    [filteredOrders]
+    [filteredInvoices]
   );
 
   const orderQuantity = Number(orderForm.quantity) || 0;
   const orderDiscount = Number(orderForm.discount) || 0;
+  const orderDeliveryFee = Number(orderForm.deliveryFee) || 0;
   const orderSubtotal = selectedOrderBook ? selectedOrderBook.sellPrice * orderQuantity : 0;
   const orderTotal = Math.max(orderSubtotal - orderDiscount, 0);
+  const invoiceDraftItems = useMemo<InvoiceDraftLine[]>(
+    () =>
+      invoiceItems
+        .map((item) => {
+          const book = books.find((bookItem) => bookItem.id === Number(item.bookId));
+          const quantity = Number(item.quantity) || 0;
+          const discount = Number(item.discount) || 0;
+          const subtotal = book ? book.sellPrice * quantity : 0;
+          const cost = book ? book.buyPrice * quantity : 0;
+          const total = Math.max(subtotal - discount, 0);
+
+          return { item, book, quantity, discount, subtotal, cost, total };
+        })
+        .filter((line): line is InvoiceDraftLine => Boolean(line.book) && line.quantity > 0),
+    [books, invoiceItems]
+  );
+  const invoiceDraftSubtotal = invoiceDraftItems.reduce((sum, line) => sum + line.subtotal, 0);
+  const invoiceDraftDiscount = invoiceDraftItems.reduce((sum, line) => sum + line.discount, 0);
+  const invoiceDraftCost = invoiceDraftItems.reduce((sum, line) => sum + line.cost, 0);
+  const invoiceDraftLineTotal = invoiceDraftItems.reduce((sum, line) => sum + line.total, 0);
+  const invoiceDraftProfit = invoiceDraftLineTotal - invoiceDraftCost;
+  const invoiceDraftGrandTotal = invoiceDraftLineTotal + orderDeliveryFee;
+  const dashboardProfit = report.finance.actualNetAfterExpense;
+  const dashboardMargin = report.finance.projectedMargin;
+  const productStockQuantity = Number(bookForm.stock) || 0;
+  const productPaidStockQuantity = Math.max(productStockQuantity - Math.floor(productStockQuantity / 6), 0);
+  const productFreeStockQuantity = Math.floor(productStockQuantity / 6);
+  const productBuyCost = parseCurrencyInput(bookForm.buyPrice || "0") * productPaidStockQuantity;
 
   const bookImagePreviews = useMemo(
     () =>
@@ -327,6 +435,7 @@ function App() {
   const handleAddProductClick = () => {
     resetBookForm();
     setShowProductForm(true);
+    window.scrollTo({ top: 0, behavior: "smooth" });
   };
 
   const handleEditBook = (book: Book) => {
@@ -347,6 +456,31 @@ function App() {
       imageUrlsText: book.imageUrls.join("\n")
     });
     setActiveSection("products");
+    window.scrollTo({ top: 0, behavior: "smooth" });
+  };
+
+  const handleStockAdjust = async (book: Book, quantity: 1 | -1) => {
+    if (quantity < 0 && book.stock <= 0) {
+      return;
+    }
+
+    setStockAdjustingBookId(book.id);
+    setError(null);
+
+    try {
+      const payload: AddStockPayload = {
+        quantity,
+        note: quantity > 0 ? "Quick stock increase" : "Quick stock decrease"
+      };
+
+      await addBookStock(book.id, payload);
+      await loadAll();
+      setActiveSection("products");
+    } catch (requestError) {
+      setError(requestError instanceof Error ? requestError.message : "មិនអាចកែប្រែស្តុកបានទេ។");
+    } finally {
+      setStockAdjustingBookId(null);
+    }
   };
 
   const handleBookSubmit = async (event: FormEvent<HTMLFormElement>) => {
@@ -359,8 +493,8 @@ function App() {
       const payload: CreateBookPayload = {
         title: bookForm.title.trim(),
         category: bookForm.category.trim(),
-        buyPrice: Number(bookForm.buyPrice),
-        sellPrice: Number(bookForm.sellPrice),
+        buyPrice: parseCurrencyInput(bookForm.buyPrice),
+        sellPrice: parseCurrencyInput(bookForm.sellPrice),
         pageCount: Number(bookForm.pageCount),
         stock: Number(bookForm.stock),
         lowStockThreshold: Number(bookForm.lowStockThreshold),
@@ -372,20 +506,47 @@ function App() {
 
       if (editingBookId === null) {
         await createBook(payload, bookImages);
-        setBookSuccessMessage("Book saved successfully.");
+        setBookSuccessMessage("បានរក្សាទុកសៀវភៅដោយជោគជ័យ។");
       } else {
         await updateBook(editingBookId, payload, bookImages);
-        setBookSuccessMessage("Book updated successfully.");
+        setBookSuccessMessage("បានកែប្រែសៀវភៅដោយជោគជ័យ។");
       }
 
       resetBookForm();
       await loadAll();
       setActiveSection("products");
     } catch (requestError) {
-      setError(requestError instanceof Error ? requestError.message : "Could not save the book.");
+      setError(requestError instanceof Error ? requestError.message : "មិនអាចរក្សាទុកសៀវភៅបានទេ។");
     } finally {
       setBookSaving(false);
     }
+  };
+
+  const handleAddInvoiceItem = () => {
+    if (!orderForm.bookId) {
+      setError("សូមជ្រើសរើសសៀវភៅ។");
+      return;
+    }
+
+    setError(null);
+    setInvoiceItems((currentItems) => [
+      ...currentItems,
+      {
+        bookId: orderForm.bookId,
+        quantity: orderForm.quantity,
+        discount: orderForm.discount
+      }
+    ]);
+    setOrderForm((currentForm) => ({
+      ...currentForm,
+      bookId: "",
+      quantity: "1",
+      discount: "0"
+    }));
+  };
+
+  const handleRemoveInvoiceItem = (index: number) => {
+    setInvoiceItems((currentItems) => currentItems.filter((_, itemIndex) => itemIndex !== index));
   };
 
   const handleOrderSubmit = async (event: FormEvent<HTMLFormElement>) => {
@@ -395,22 +556,46 @@ function App() {
     setOrderSuccessMessage(null);
 
     try {
-      const payload: CreateOrderPayload = {
-        bookId: Number(orderForm.bookId),
+      if (invoiceDraftItems.length === 0) {
+        throw new Error("សូមបន្ថែមសៀវភៅយ៉ាងហោចណាស់មួយ។");
+      }
+
+      const payload: CreateInvoicePayload = {
         customerName: orderForm.customerName.trim(),
-        quantity: Number(orderForm.quantity),
-        discount: Number(orderForm.discount || 0)
+        deliveryFee: Number(orderForm.deliveryFee || 0),
+        items: invoiceDraftItems.map((line) => ({
+          bookId: Number(line.item.bookId),
+          quantity: Number(line.item.quantity),
+          discount: Number(line.item.discount || 0)
+        }))
       };
 
-      await createOrder(payload);
+      await createInvoice(payload);
       setOrderForm(initialOrderForm);
-      setOrderSuccessMessage("Sale order saved and stock was updated.");
+      setInvoiceItems([]);
+      setOrderSuccessMessage("បានរក្សាទុកការលក់ និងកែប្រែស្តុករួចរាល់។");
       await loadAll();
       setActiveSection("orders");
     } catch (requestError) {
-      setError(requestError instanceof Error ? requestError.message : "Could not save the order.");
+      setError(requestError instanceof Error ? requestError.message : "មិនអាចរក្សាទុកការលក់បានទេ។");
     } finally {
       setOrderSaving(false);
+    }
+  };
+
+  const handleDeleteInvoice = async (invoice: InvoiceGroup) => {
+    const confirmed = window.confirm(`លុបវិក្កយបត្រ ${invoice.invoiceCode}? ស្តុកនឹងត្រូវបន្ថែមត្រឡប់វិញ។`);
+
+    if (!confirmed) {
+      return;
+    }
+
+    try {
+      setError(null);
+      await deleteInvoice(invoice.invoiceCode);
+      await loadAll();
+    } catch (requestError) {
+      setError(requestError instanceof Error ? requestError.message : "មិនអាចលុបវិក្កយបត្របានទេ។");
     }
   };
 
@@ -418,7 +603,7 @@ function App() {
     const printWindow = window.open("", "_blank", "width=900,height=700");
 
     if (!printWindow) {
-      setError("Please allow popups to print invoices.");
+      setError("សូមអនុញ្ញាត popup ដើម្បីបោះពុម្ពវិក្កយបត្រ។");
       return;
     }
 
@@ -452,67 +637,16 @@ function App() {
     printWindow.print();
   };
 
-  const handlePrintInvoice = (order: Order) => {
-    const subtotal = order.unitSellPrice * order.quantity;
-    const body = `
-      <main class="invoice">
-        <section class="header">
-          <div>
-            <h1>BOOKIFY</h1>
-            <p class="muted">Bookshop Sales Invoice</p>
-          </div>
-          <div>
-            <p><strong>Invoice:</strong> #${order.id}</p>
-            <p><strong>Date:</strong> ${new Date(order.orderedAt).toLocaleString()}</p>
-          </div>
-        </section>
-
-        <h2>Customer</h2>
-        <p>${escapeHtml(order.customerName)}</p>
-
-        <table>
-          <thead>
-            <tr>
-              <th>Book</th>
-              <th>Quantity</th>
-              <th>Sell price</th>
-              <th>Subtotal</th>
-            </tr>
-          </thead>
-          <tbody>
-            <tr>
-              <td>${escapeHtml(order.bookTitle)}</td>
-              <td>${order.quantity}</td>
-              <td>${currency.format(order.unitSellPrice)}</td>
-              <td>${currency.format(subtotal)}</td>
-            </tr>
-          </tbody>
-        </table>
-
-        <section class="totals">
-          <div><span>Subtotal</span><strong>${currency.format(subtotal)}</strong></div>
-          <div><span>Discount</span><strong>${currency.format(order.discount)}</strong></div>
-          <div class="total"><span>Total</span><strong>${currency.format(order.totalAmount)}</strong></div>
-        </section>
-      </main>
-    `;
-
-    openPrintWindow(`Bookify Invoice #${order.id}`, body);
-  };
-
-  const handlePrintOrderReport = () => {
-    const rows = filteredOrders
+  const handlePrintInvoice = (invoice: InvoiceGroup) => {
+    const rows = invoice.items
       .map(
         (order) => `
           <tr>
-            <td>#${order.id}</td>
-            <td>${escapeHtml(order.customerName)}</td>
             <td>${escapeHtml(order.bookTitle)}</td>
             <td>${order.quantity}</td>
             <td>${currency.format(order.unitSellPrice)}</td>
             <td>${currency.format(order.discount)}</td>
             <td>${currency.format(order.totalAmount)}</td>
-            <td>${new Date(order.orderedAt).toLocaleDateString()}</td>
           </tr>
         `
       )
@@ -523,39 +657,120 @@ function App() {
         <section class="header">
           <div>
             <h1>BOOKIFY</h1>
-            <p class="muted">${orderPeriodLabels[orderPeriod]} Sales Record</p>
+            <p class="muted">វិក្កយបត្រលក់សៀវភៅ</p>
           </div>
           <div>
-            <p><strong>Printed:</strong> ${new Date().toLocaleString()}</p>
+            <p><strong>លេខវិក្កយបត្រ:</strong> ${escapeHtml(invoice.invoiceCode)}</p>
+            <p><strong>ថ្ងៃ:</strong> ${new Date(invoice.orderedAt).toLocaleString()}</p>
+          </div>
+        </section>
+
+        <h2>អតិថិជន</h2>
+        <p>${escapeHtml(invoice.customerName)}</p>
+
+        <table>
+          <thead>
+            <tr>
+              <th>សៀវភៅ</th>
+              <th>ចំនួន</th>
+              <th>តម្លៃលក់</th>
+              <th>បញ្ចុះ</th>
+              <th>សរុប</th>
+            </tr>
+          </thead>
+          <tbody>${rows}</tbody>
+        </table>
+
+        <section class="totals">
+          <div><span>លុយដើម</span><strong>${currency.format(invoice.cost)}</strong></div>
+          <div><span>លុយចំណេញ</span><strong>${currency.format(invoice.profit)}</strong></div>
+          <div><span>ថ្លៃដឹក</span><strong>${currency.format(invoice.deliveryFee)}</strong></div>
+          <div><span>បញ្ចុះតម្លៃ</span><strong>${currency.format(invoice.discount)}</strong></div>
+          <div class="total"><span>សរុបត្រូវបង់</span><strong>${currency.format(invoice.total)}</strong></div>
+        </section>
+      </main>
+    `;
+
+    openPrintWindow(`Bookify វិក្កយបត្រ ${invoice.invoiceCode}`, body);
+  };
+
+  const handlePrintOrderReport = () => {
+    const rows = filteredInvoices
+      .map(
+        (invoice) => `
+          <tr>
+            <td>${escapeHtml(invoice.invoiceCode)}</td>
+            <td>${escapeHtml(invoice.customerName)}</td>
+            <td>${invoice.items.length}</td>
+            <td>${invoice.items.reduce((sum, item) => sum + item.quantity, 0)}</td>
+            <td>${currency.format(invoice.cost)}</td>
+            <td>${currency.format(invoice.profit)}</td>
+            <td>${currency.format(invoice.deliveryFee)}</td>
+            <td>${currency.format(invoice.total)}</td>
+            <td>${new Date(invoice.orderedAt).toLocaleDateString()}</td>
+          </tr>
+        `
+      )
+      .join("");
+
+    const body = `
+      <main class="invoice">
+        <section class="header">
+          <div>
+            <h1>BOOKIFY</h1>
+            <p class="muted">របាយការណ៍លក់${orderPeriodLabels[orderPeriod]}</p>
+          </div>
+          <div>
+            <p><strong>បានបោះពុម្ព:</strong> ${new Date().toLocaleString()}</p>
           </div>
         </section>
 
         <section class="totals">
-          <div><span>Orders</span><strong>${orderRecordSummary.orderCount}</strong></div>
-          <div><span>Sold units</span><strong>${orderRecordSummary.soldUnits}</strong></div>
-          <div><span>Discount</span><strong>${currency.format(orderRecordSummary.totalDiscount)}</strong></div>
-          <div class="total"><span>Net sales</span><strong>${currency.format(orderRecordSummary.netSales)}</strong></div>
+          <div><span>វិក្កយបត្រ</span><strong>${orderRecordSummary.orderCount}</strong></div>
+          <div><span>បានលក់</span><strong>${orderRecordSummary.soldUnits}</strong></div>
+          <div><span>បញ្ចុះតម្លៃ</span><strong>${currency.format(orderRecordSummary.totalDiscount)}</strong></div>
+          <div class="total"><span>ចំណូលសុទ្ធ</span><strong>${currency.format(orderRecordSummary.netSales)}</strong></div>
         </section>
 
         <table>
           <thead>
             <tr>
-              <th>Order</th>
-              <th>Customer</th>
-              <th>Book</th>
-              <th>Qty</th>
-              <th>Sell price</th>
-              <th>Discount</th>
-              <th>Total</th>
-              <th>Date</th>
+              <th>លេខ</th>
+              <th>អតិថិជន</th>
+              <th>ចំនួនមុខ</th>
+              <th>ចំនួនសៀវភៅ</th>
+              <th>លុយដើម</th>
+              <th>លុយចំណេញ</th>
+              <th>ថ្លៃដឹក</th>
+              <th>សរុប</th>
+              <th>ថ្ងៃ</th>
             </tr>
           </thead>
-          <tbody>${rows || '<tr><td colspan="8">No orders in this period.</td></tr>'}</tbody>
+          <tbody>${rows || '<tr><td colspan="9">មិនមានការលក់ក្នុងរយៈពេលនេះទេ។</td></tr>'}</tbody>
         </table>
       </main>
     `;
 
-    openPrintWindow(`Bookify ${orderPeriodLabels[orderPeriod]} Sales Record`, body);
+    openPrintWindow(`Bookify របាយការណ៍លក់${orderPeriodLabels[orderPeriod]}`, body);
+  };
+
+  const handleExportOrderReport = () => {
+    const rows: Array<Array<string | number>> = [
+      ["លេខវិក្កយបត្រ", "អតិថិជន", "ចំនួនមុខ", "ចំនួនសៀវភៅ", "លុយដើម", "លុយចំណេញ", "ថ្លៃដឹក", "សរុប", "កាលបរិច្ឆេទ"],
+      ...filteredInvoices.map((invoice) => [
+        invoice.invoiceCode,
+        invoice.customerName,
+        invoice.items.length,
+        invoice.items.reduce((sum, item) => sum + item.quantity, 0),
+        invoice.cost,
+        invoice.profit,
+        invoice.deliveryFee,
+        invoice.total,
+        new Date(invoice.orderedAt).toLocaleDateString()
+      ])
+    ];
+
+    downloadCsv(`bookify-${orderPeriod}-sales.csv`, rows);
   };
 
   const handleExpenseSubmit = async (event: FormEvent<HTMLFormElement>) => {
@@ -593,40 +808,22 @@ function App() {
     <>
       <section className="stats-grid stats-grid-wide">
         <article className="stat-card">
-          <span>Total products</span>
-          <strong>{report.inventory.totalProducts}</strong>
+          <span>ចំណូលសរុប</span>
+          <strong>{currency.format(report.finance.actualNetSales)}</strong>
         </article>
         <article className="stat-card">
-          <span>Total units</span>
-          <strong>{report.inventory.totalStock}</strong>
+          <span>ចំណេញក្រោយចំណាយ</span>
+          <strong className={dashboardProfit >= 0 ? "profit-positive" : "profit-negative"}>
+            {currency.format(dashboardProfit)}
+          </strong>
         </article>
         <article className="stat-card">
-          <span>Stock cost value</span>
-          <strong>{currency.format(report.inventory.totalCostValue)}</strong>
+          <span>ចំណាយសរុប</span>
+          <strong>{currency.format(report.expenses.totalExpense)}</strong>
         </article>
         <article className="stat-card">
-          <span>Stock sale value</span>
-          <strong>{currency.format(report.inventory.totalSalesValue)}</strong>
-        </article>
-        <article className="stat-card">
-          <span>Gross margin</span>
-          <strong>{currency.format(report.inventory.totalPotentialProfit)}</strong>
-        </article>
-        <article className="stat-card">
-          <span>Sale records</span>
+          <span>ចំនួនវិក្កយបត្រ</span>
           <strong>{report.orders.totalOrders}</strong>
-        </article>
-        <article className="stat-card">
-          <span>Net sales</span>
-          <strong>{currency.format(report.orders.netSales)}</strong>
-        </article>
-        <article className="stat-card warning">
-          <span>Low stock</span>
-          <strong>{report.inventory.lowStock}</strong>
-        </article>
-        <article className="stat-card danger">
-          <span>Out of stock</span>
-          <strong>{report.inventory.outOfStock}</strong>
         </article>
       </section>
 
@@ -634,30 +831,30 @@ function App() {
         <article className="panel">
           <div className="panel-header">
             <div>
-              <p className="section-label">Finance</p>
-              <h2>Sales performance</h2>
+              <p className="section-label">ហិរញ្ញវត្ថុ</p>
+              <h2>សរុបចំណូល និងចំណេញ</h2>
             </div>
           </div>
 
           <div className="stack-list">
             <div className="stack-row">
-              <span>Gross sales</span>
+              <span>ចំណូលមុនបញ្ចុះតម្លៃ</span>
               <strong>{currency.format(report.orders.grossSales)}</strong>
             </div>
             <div className="stack-row">
-              <span>Total discount</span>
+              <span>បញ្ចុះតម្លៃសរុប</span>
               <strong>{currency.format(report.orders.totalDiscount)}</strong>
             </div>
             <div className="stack-row">
-              <span>Net sales</span>
+              <span>ចំណូលសុទ្ធ</span>
               <strong>{currency.format(report.finance.actualNetSales)}</strong>
             </div>
             <div className="stack-row">
-              <span>Expenses</span>
+              <span>ចំណាយ</span>
               <strong>{currency.format(report.expenses.totalExpense)}</strong>
             </div>
             <div className="stack-row">
-              <span>Net after expenses</span>
+              <span>ចំណេញក្រោយចំណាយ</span>
               <strong
                 className={
                   report.finance.actualNetAfterExpense >= 0 ? "profit-positive" : "profit-negative"
@@ -672,90 +869,50 @@ function App() {
         <article className="panel">
           <div className="panel-header">
             <div>
-              <p className="section-label">Restock</p>
-              <h2>Items needing attention</h2>
+              <p className="section-label">ថ្ងៃនេះ</p>
+              <h2>សកម្មភាពលក់</h2>
             </div>
           </div>
 
-          {lowStockBooks.length === 0 ? (
-            <div className="empty-state compact">No low stock or out of stock items.</div>
-          ) : (
-            <div className="stack-list">
-              {lowStockBooks.slice(0, 5).map((book) => (
-                <div className="stack-row" key={book.id}>
-                  <span>
-                    {book.title} - {book.category}
-                  </span>
-                  <strong>{book.stock} left</strong>
-                </div>
-              ))}
+          <div className="stack-list">
+            <div className="stack-row">
+              <span>បញ្ជីលក់ទាំងអស់</span>
+              <strong>{report.orders.totalOrders}</strong>
             </div>
-          )}
-        </article>
-      </section>
-
-      <section className="two-column-grid">
-        <article className="panel">
-          <div className="panel-header">
-            <div>
-              <p className="section-label">Best margin</p>
-              <h2>Top earning products</h2>
+            <div className="stack-row">
+              <span>សៀវភៅបានលក់</span>
+              <strong>{report.orders.soldUnits}</strong>
+            </div>
+            <div className="stack-row">
+              <span>ចំណេញស្តុករំពឹងទុក</span>
+              <strong className={dashboardMargin >= 0 ? "profit-positive" : "profit-negative"}>
+                {currency.format(dashboardMargin)}
+              </strong>
+            </div>
+            <div className="stack-row">
+              <span>ផលិតផលសរុប</span>
+              <strong>{report.inventory.totalProducts}</strong>
             </div>
           </div>
-
-          {topMarginBooks.length === 0 ? (
-            <div className="empty-state compact">No product data yet.</div>
-          ) : (
-            <div className="stack-list">
-              {topMarginBooks.map((book) => (
-                <div className="stack-row" key={book.id}>
-                  <span>{book.title}</span>
-                  <strong>{currency.format(book.potentialProfit)}</strong>
-                </div>
-              ))}
-            </div>
-          )}
-        </article>
-
-        <article className="panel">
-          <div className="panel-header">
-            <div>
-              <p className="section-label">By category</p>
-              <h2>Inventory mix</h2>
-            </div>
-          </div>
-
-          {Object.keys(inventoryByCategory).length === 0 ? (
-            <div className="empty-state compact">No products yet.</div>
-          ) : (
-            <div className="stack-list">
-              {Object.entries(inventoryByCategory).map(([category, total]) => (
-                <div className="stack-row" key={category}>
-                  <span>{category}</span>
-                  <strong>{total} units</strong>
-                </div>
-              ))}
-            </div>
-          )}
         </article>
       </section>
     </>
   );
 
-  const renderProducts = () => (
-    <>
-      {showProductForm ? (
+  const renderProducts = () => {
+    if (showProductForm) {
+      return (
         <article className="panel product-form-panel">
           <div className="panel-header">
             <div>
-              <p className="section-label">{editingBook ? "Edit product" : "Add product"}</p>
-              <h2>{editingBook ? "Update book record" : "New book record"}</h2>
+              <p className="section-label">{editingBook ? "កែប្រែសៀវភៅ" : "បន្ថែមសៀវភៅ"}</p>
+              <h2>{editingBook ? "ធ្វើបច្ចុប្បន្នភាពសៀវភៅ" : "កំណត់ត្រាសៀវភៅថ្មី"}</h2>
             </div>
           </div>
 
           <form className="form-grid" onSubmit={handleBookSubmit}>
             <label>
-              Title
+              ចំណងជើង
               <input
                 value={bookForm.title}
                 onChange={(event) => setBookForm({ ...bookForm, title: event.target.value })}
@@ -765,7 +922,7 @@ function App() {
             </label>
 
             <label>
-              Category
+              ប្រភេទ
               <input
                 value={bookForm.category}
                 onChange={(event) => setBookForm({ ...bookForm, category: event.target.value })}
@@ -776,25 +933,23 @@ function App() {
 
             <div className="row-grid">
               <label>
-                Buy price
+                តម្លៃទិញ
                 <input
-                  type="number"
-                  min="0"
-                  step="0.01"
+                  inputMode="decimal"
                   value={bookForm.buyPrice}
                   onChange={(event) => setBookForm({ ...bookForm, buyPrice: event.target.value })}
+                  placeholder="3.6$"
                   required
                 />
               </label>
 
               <label>
-                Sell price
+                តម្លៃលក់
                 <input
-                  type="number"
-                  min="0"
-                  step="0.01"
+                  inputMode="decimal"
                   value={bookForm.sellPrice}
                   onChange={(event) => setBookForm({ ...bookForm, sellPrice: event.target.value })}
+                  placeholder="5.99$"
                   required
                 />
               </label>
@@ -802,7 +957,7 @@ function App() {
 
             <div className="row-grid row-grid-three">
               <label>
-                Page count
+                ចំនួនទំព័រ
                 <input
                   type="number"
                   min="1"
@@ -814,7 +969,7 @@ function App() {
               </label>
 
               <label>
-                Stock quantity
+                ចំនួនស្តុក
                 <input
                   type="number"
                   min="0"
@@ -826,7 +981,7 @@ function App() {
               </label>
 
               <label>
-                Low stock alert
+                ជូនដំណឹងស្តុកតិច
                 <input
                   type="number"
                   min="0"
@@ -840,8 +995,27 @@ function App() {
               </label>
             </div>
 
+            <section className="order-preview stock-cost-preview">
+              <div>
+                <span>ស្តុកទទួលបាន</span>
+                <strong>{productStockQuantity}</strong>
+              </div>
+              <div>
+                <span>សៀវភៅគិតថ្លៃទិញ</span>
+                <strong>{productPaidStockQuantity}</strong>
+              </div>
+              <div className="free-books-box">
+                <span>សៀវភៅឥតគិតថ្លៃពីអ្នកផ្គត់ផ្គង់</span>
+                <strong>{productFreeStockQuantity}</strong>
+              </div>
+              <div className="order-total">
+                <span>តម្លៃដើមទិញ</span>
+                <strong>{currency.format(productBuyCost)}</strong>
+              </div>
+            </section>
+
             <label>
-              Upload images
+              បញ្ចូលរូបភាព
               <input
                 key={bookImageInputKey}
                 type="file"
@@ -849,12 +1023,12 @@ function App() {
                 multiple
                 onChange={handleBookImageChange}
               />
-              <span className="field-hint">Upload up to 5 book images. Use the close button to remove one before saving.</span>
+              <span className="field-hint">អាចបញ្ចូលរូបសៀវភៅបានដល់ 5 រូប។ ប្រើប៊ូតុងបិទដើម្បីលុបមុនរក្សាទុក។</span>
             </label>
 
             {editingBook?.imageUrls.length ? (
               <div>
-                <div className="subsection-title">Saved images</div>
+                <div className="subsection-title">រូបភាពដែលបានរក្សាទុក</div>
                 <div className="image-preview-grid">
                   {bookForm.imageUrlsText
                     .split("\n")
@@ -875,7 +1049,7 @@ function App() {
                           alt={`${editingBook.title} ${index + 1}`}
                           className="image-preview"
                         />
-                        <span>Current image {index + 1}</span>
+                        <span>រូបភាពបច្ចុប្បន្ន {index + 1}</span>
                       </div>
                     ))}
                 </div>
@@ -884,7 +1058,7 @@ function App() {
 
             {bookImagePreviews.length > 0 ? (
               <div>
-                <div className="subsection-title">New uploads</div>
+                <div className="subsection-title">រូបភាពថ្មី</div>
                 <div className="image-preview-grid">
                   {bookImagePreviews.map((preview, index) => (
                     <div className="image-preview-card removable" key={`${preview.name}-${index}`}>
@@ -908,7 +1082,7 @@ function App() {
 
             <div className="button-row">
               <button type="submit" className="primary-button" disabled={bookSaving}>
-                {bookSaving ? "Saving..." : editingBook ? "Update book" : "Add book"}
+                {bookSaving ? "កំពុងរក្សាទុក..." : editingBook ? "កែប្រែសៀវភៅ" : "បន្ថែមសៀវភៅ"}
               </button>
               <button
                 type="button"
@@ -916,234 +1090,231 @@ function App() {
                 onClick={resetBookForm}
                 disabled={bookSaving}
               >
-                Cancel
+                បោះបង់
               </button>
             </div>
           </form>
         </article>
-      ) : null}
+      );
+    }
 
+    return (
       <article className="panel product-list-panel">
         <div className="panel-header">
           <div>
-            <p className="section-label">Products</p>
-            <h2>Item List</h2>
+            <p className="section-label">សៀវភៅ</p>
+            <h2>បញ្ជីសៀវភៅ</h2>
           </div>
-          <button type="button" className="primary-button" onClick={handleAddProductClick}>
-            Add Product
-          </button>
+          <div className="panel-actions">
+            <button type="button" className="primary-button" onClick={handleAddProductClick}>
+              បន្ថែមសៀវភៅ
+            </button>
+          </div>
         </div>
 
-        <section className="inline-metrics">
-          <div className="status-box">
-            <span>Stock cost value</span>
-            <strong>{currency.format(report.inventory.totalCostValue)}</strong>
-          </div>
-          <div className="status-box">
-            <span>Stock sale value</span>
-            <strong>{currency.format(report.inventory.totalSalesValue)}</strong>
-          </div>
-          <div className="status-box">
-            <span>Total margin</span>
-            <strong>{currency.format(report.inventory.totalPotentialProfit)}</strong>
-          </div>
-        </section>
-
-        {renderBookTable(books, "No products yet.")}
+        {renderBookTable(books, "មិនទាន់មានសៀវភៅទេ។")}
       </article>
-    </>
-  );
+    );
+  };
 
-  const renderStock = () => (
-    <>
-      <section className="stats-grid stock-stats-grid">
-        <article className="stat-card">
-          <span>In stock</span>
-          <strong>{report.inventory.inStock}</strong>
-        </article>
-        <article className="stat-card warning">
-          <span>Low stock</span>
-          <strong>{report.inventory.lowStock}</strong>
-        </article>
-        <article className="stat-card danger">
-          <span>Out of stock</span>
-          <strong>{report.inventory.outOfStock}</strong>
-        </article>
-      </section>
-
-      <section className="two-column-grid">
-        <article className="panel">
-          <div className="panel-header">
-            <div>
-              <p className="section-label">Need reorder</p>
-              <h2>Stock alerts</h2>
-            </div>
-          </div>
-
-          {lowStockBooks.length === 0 ? (
-            <div className="empty-state compact">Everything is above the safety stock level.</div>
-          ) : (
-            <div className="stack-list">
-              {lowStockBooks.map((book) => (
-                <div className="stack-row" key={book.id}>
-                  <span>
-                    {book.title} - reorder before it reaches {book.lowStockThreshold}
-                  </span>
-                  <strong>{book.stock} left</strong>
-                </div>
-              ))}
-            </div>
-          )}
-        </article>
-
-        <article className="panel">
-          <div className="panel-header">
-            <div>
-              <p className="section-label">Category stock</p>
-              <h2>Units by category</h2>
-            </div>
-          </div>
-
-          {Object.keys(inventoryByCategory).length === 0 ? (
-            <div className="empty-state compact">No category data yet.</div>
-          ) : (
-            <div className="stack-list">
-              {Object.entries(inventoryByCategory).map(([category, total]) => (
-                <div className="stack-row" key={category}>
-                  <span>{category}</span>
-                  <strong>{total} units</strong>
-                </div>
-              ))}
-            </div>
-          )}
-        </article>
-      </section>
-
-      <section className="panel">
-        <div className="panel-header">
-          <div>
-            <p className="section-label">Stock</p>
-            <h2>Inventory status</h2>
-          </div>
-        </div>
-        {renderBookTable(books, "No stock data yet.")}
-      </section>
-    </>
-  );
-
-  const renderOrders = () => (
+  const renderInvoiceOrders = () => (
     <section className="two-column-grid two-column-wide">
-      <article className="panel">
+      <article className="panel invoice-builder-panel">
         <div className="panel-header">
           <div>
-            <p className="section-label">New sale</p>
-            <h2>Create order</h2>
+            <p className="section-label">លក់ថ្មី</p>
+            <h2>បង្កើតវិក្កយបត្រ</h2>
           </div>
         </div>
 
         <form className="form-grid" onSubmit={handleOrderSubmit}>
           <label>
-            Product
-            <select
-              value={orderForm.bookId}
-              onChange={(event) =>
-                setOrderForm({ ...orderForm, bookId: event.target.value })
-              }
-              required
-            >
-              <option value="">Choose a book</option>
-              {books.map((book) => (
-                <option key={book.id} value={book.id} disabled={book.stock <= 0}>
-                  {book.title} - {currency.format(book.sellPrice)} - {book.stock} in stock
-                </option>
-              ))}
-            </select>
-          </label>
-
-          <label>
-            Customer name
+            ឈ្មោះអតិថិជន
             <input
               value={orderForm.customerName}
               onChange={(event) =>
                 setOrderForm({ ...orderForm, customerName: event.target.value })
               }
-              placeholder="Walk-in customer"
+              placeholder="អតិថិជនទូទៅ"
             />
           </label>
 
-          <div className="row-grid">
-            <label>
-              Quantity
-              <input
-                type="number"
-                min="1"
-                step="1"
-                value={orderForm.quantity}
-                onChange={(event) =>
-                  setOrderForm({ ...orderForm, quantity: event.target.value })
-                }
-                required
-              />
-            </label>
+          <label>
+            ថ្លៃដឹក
+            <input
+              type="number"
+              min="0"
+              step="0.01"
+              value={orderForm.deliveryFee}
+              onChange={(event) =>
+                setOrderForm({ ...orderForm, deliveryFee: event.target.value })
+              }
+            />
+          </label>
 
-            <label>
-              Discount
-              <input
-                type="number"
-                min="0"
-                step="0.01"
-                value={orderForm.discount}
-                onChange={(event) =>
-                  setOrderForm({ ...orderForm, discount: event.target.value })
-                }
-              />
-            </label>
+          <div className="invoice-line-card">
+            <div className="row-grid">
+              <label>
+                សៀវភៅ
+                <select
+                  value={orderForm.bookId}
+                  onChange={(event) =>
+                    setOrderForm({ ...orderForm, bookId: event.target.value })
+                  }
+                >
+                  <option value="">ជ្រើសរើសសៀវភៅ</option>
+                  {books.map((book) => (
+                    <option key={book.id} value={book.id} disabled={book.stock <= 0}>
+                      {book.title} - {currency.format(book.sellPrice)} - ស្តុក {book.stock}
+                    </option>
+                  ))}
+                </select>
+              </label>
+
+              <div className="row-grid">
+                <label>
+                  ចំនួន
+                  <input
+                    type="number"
+                    min="1"
+                    step="1"
+                    value={orderForm.quantity}
+                    onChange={(event) =>
+                      setOrderForm({ ...orderForm, quantity: event.target.value })
+                    }
+                  />
+                </label>
+
+                <label>
+                  បញ្ចុះតម្លៃ
+                  <input
+                    type="number"
+                    min="0"
+                    step="0.01"
+                    value={orderForm.discount}
+                    onChange={(event) =>
+                      setOrderForm({ ...orderForm, discount: event.target.value })
+                    }
+                  />
+                </label>
+              </div>
+            </div>
+
+            <section className="order-preview">
+              <div>
+                <span>ចំនួនគិតប្រាក់</span>
+                <strong>{orderQuantity}</strong>
+              </div>
+              <div>
+                <span>តម្លៃលក់</span>
+                <strong>{currency.format(selectedOrderBook?.sellPrice ?? 0)}</strong>
+              </div>
+              <div>
+                <span>សរុបមុនបញ្ចុះ</span>
+                <strong>{currency.format(orderSubtotal)}</strong>
+              </div>
+              <div className="order-total">
+                <span>សរុបមុខនេះ</span>
+                <strong>{currency.format(orderTotal)}</strong>
+              </div>
+            </section>
+
+            <button type="button" className="secondary-button" onClick={handleAddInvoiceItem}>
+              បន្ថែមសៀវភៅទៅវិក្កយបត្រ
+            </button>
           </div>
 
-          <section className="order-preview">
+          <div className="invoice-draft-list">
+            <div className="subsection-title">សៀវភៅក្នុងវិក្កយបត្រ</div>
+            {invoiceDraftItems.length === 0 ? (
+              <div className="empty-state compact">សូមបន្ថែមសៀវភៅយ៉ាងហោចណាស់មួយ។</div>
+            ) : (
+              invoiceDraftItems.map((line, index) => (
+                <div className="invoice-draft-row" key={`${line.book.id}-${index}`}>
+                  <div>
+                    <strong>{line.book.title}</strong>
+                    <span>
+                      {line.quantity} x {currency.format(line.book.sellPrice)}
+                    </span>
+                  </div>
+                  <div>
+                    <span>បញ្ចុះ</span>
+                    <strong>{currency.format(line.discount)}</strong>
+                  </div>
+                  <div>
+                    <span>សរុប</span>
+                    <strong>{currency.format(line.total)}</strong>
+                  </div>
+                  <button
+                    type="button"
+                    className="table-action danger-action"
+                    onClick={() => handleRemoveInvoiceItem(index)}
+                  >
+                    លុប
+                  </button>
+                </div>
+              ))
+            )}
+          </div>
+
+          <section className="order-preview invoice-total-preview">
             <div>
-              <span>Sell price from product</span>
-              <strong>{currency.format(selectedOrderBook?.sellPrice ?? 0)}</strong>
+              <span>លុយដើម</span>
+              <strong>{currency.format(invoiceDraftCost)}</strong>
             </div>
             <div>
-              <span>Subtotal</span>
-              <strong>{currency.format(orderSubtotal)}</strong>
+              <span>លុយចំណេញ</span>
+              <strong>{currency.format(invoiceDraftProfit)}</strong>
             </div>
             <div>
-              <span>Discount</span>
-              <strong>{currency.format(orderDiscount)}</strong>
+              <span>ថ្លៃដឹក</span>
+              <strong>{currency.format(orderDeliveryFee)}</strong>
+            </div>
+            <div>
+              <span>បញ្ចុះតម្លៃ</span>
+              <strong>{currency.format(invoiceDraftDiscount)}</strong>
             </div>
             <div className="order-total">
-              <span>Order total</span>
-              <strong>{currency.format(orderTotal)}</strong>
+              <span>សរុបត្រូវបង់</span>
+              <strong>{currency.format(invoiceDraftGrandTotal)}</strong>
             </div>
           </section>
 
-          {selectedOrderBook ? (
-            <p className="field-hint">
-              The order uses the saved sell price for {selectedOrderBook.title}. This sale will reduce stock from{" "}
-              {selectedOrderBook.stock} to{" "}
-              {Math.max(selectedOrderBook.stock - orderQuantity, 0)}.
-            </p>
-          ) : null}
-
           {orderSuccessMessage ? <p className="feedback success">{orderSuccessMessage}</p> : null}
 
-          <button type="submit" className="primary-button" disabled={orderSaving}>
-            {orderSaving ? "Saving..." : "Save sale order"}
-          </button>
+          <div className="button-row">
+            <button type="submit" className="primary-button" disabled={orderSaving}>
+              {orderSaving ? "កំពុងរក្សាទុក..." : "រក្សាទុកវិក្កយបត្រ"}
+            </button>
+            <button
+              type="button"
+              className="secondary-button"
+              onClick={() => {
+                setOrderForm(initialOrderForm);
+                setInvoiceItems([]);
+                setOrderSuccessMessage(null);
+              }}
+            >
+              សម្អាត
+            </button>
+          </div>
         </form>
       </article>
 
       <article className="panel">
         <div className="panel-header">
           <div>
-            <p className="section-label">Sales</p>
-            <h2>Order records</h2>
+            <p className="section-label">ការលក់</p>
+            <h2>កំណត់ត្រាវិក្កយបត្រ</h2>
           </div>
-          <button type="button" className="secondary-button" onClick={handlePrintOrderReport}>
-            Print {orderPeriodLabels[orderPeriod]}
-          </button>
+          <div className="panel-actions">
+            <button type="button" className="secondary-button" onClick={handleExportOrderReport}>
+              នាំចេញ {orderPeriodLabels[orderPeriod]}
+            </button>
+            <button type="button" className="secondary-button" onClick={handlePrintOrderReport}>
+              បោះពុម្ព {orderPeriodLabels[orderPeriod]}
+            </button>
+          </div>
         </div>
 
         <div className="period-tabs" aria-label="Order record period">
@@ -1161,40 +1332,280 @@ function App() {
 
         <section className="inline-metrics">
           <div className="status-box">
-            <span>Orders</span>
+            <span>វិក្កយបត្រ</span>
             <strong>{orderRecordSummary.orderCount}</strong>
           </div>
           <div className="status-box">
-            <span>Sold units</span>
+            <span>បានលក់</span>
             <strong>{orderRecordSummary.soldUnits}</strong>
           </div>
           <div className="status-box">
-            <span>Discount</span>
-            <strong>{currency.format(orderRecordSummary.totalDiscount)}</strong>
+            <span>លុយដើម</span>
+            <strong>{currency.format(orderRecordSummary.cost)}</strong>
           </div>
           <div className="status-box">
-            <span>Net sales</span>
+            <span>លុយចំណេញ</span>
+            <strong>{currency.format(orderRecordSummary.profit)}</strong>
+          </div>
+          <div className="status-box">
+            <span>ថ្លៃដឹក</span>
+            <strong>{currency.format(orderRecordSummary.deliveryFee)}</strong>
+          </div>
+          <div className="status-box">
+            <span>សរុប</span>
             <strong>{currency.format(orderRecordSummary.netSales)}</strong>
           </div>
         </section>
 
         {loading ? (
-          <div className="empty-state">Loading data...</div>
+          <div className="empty-state">កំពុងទាញទិន្នន័យ...</div>
+        ) : filteredInvoices.length === 0 ? (
+          <div className="empty-state">មិនមានវិក្កយបត្រសម្រាប់រយៈពេលនេះទេ។</div>
+        ) : (
+          <div className="table-wrap">
+            <table className="invoice-table">
+              <thead>
+                <tr>
+                  <th>លេខ</th>
+                  <th>អតិថិជន</th>
+                  <th>សៀវភៅ</th>
+                  <th>ចំនួន</th>
+                  <th>លុយដើម</th>
+                  <th>លុយចំណេញ</th>
+                  <th>ថ្លៃដឹក</th>
+                  <th>សរុប</th>
+                  <th>ថ្ងៃ</th>
+                  <th>សកម្មភាព</th>
+                </tr>
+              </thead>
+              <tbody>
+                {filteredInvoices.map((invoice) => (
+                  <tr key={invoice.invoiceCode}>
+                    <td>
+                      <strong>{invoice.invoiceCode}</strong>
+                    </td>
+                    <td>{invoice.customerName}</td>
+                    <td>
+                      <div className="invoice-item-stack">
+                        {invoice.items.map((item) => (
+                          <span key={item.id}>
+                            {item.bookTitle} x {item.quantity}
+                          </span>
+                        ))}
+                      </div>
+                    </td>
+                    <td>{invoice.items.reduce((sum, item) => sum + item.quantity, 0)}</td>
+                    <td>{currency.format(invoice.cost)}</td>
+                    <td>
+                      <strong className={invoice.profit >= 0 ? "profit-positive" : "profit-negative"}>
+                        {currency.format(invoice.profit)}
+                      </strong>
+                    </td>
+                    <td>{currency.format(invoice.deliveryFee)}</td>
+                    <td>
+                      <strong>{currency.format(invoice.total)}</strong>
+                    </td>
+                    <td>{new Date(invoice.orderedAt).toLocaleDateString()}</td>
+                    <td>
+                      <div className="table-actions">
+                        <button
+                          type="button"
+                          className="table-action"
+                          onClick={() => handlePrintInvoice(invoice)}
+                        >
+                          វិក្កយបត្រ
+                        </button>
+                        <button
+                          type="button"
+                          className="table-action danger-action"
+                          onClick={() => handleDeleteInvoice(invoice)}
+                        >
+                          លុប
+                        </button>
+                      </div>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </article>
+    </section>
+  );
+
+  const renderOrders = () => (
+    <section className="two-column-grid two-column-wide">
+      <article className="panel">
+        <div className="panel-header">
+          <div>
+            <p className="section-label">លក់ថ្មី</p>
+            <h2>បង្កើតការលក់</h2>
+          </div>
+        </div>
+
+        <form className="form-grid" onSubmit={handleOrderSubmit}>
+          <label>
+            សៀវភៅ
+            <select
+              value={orderForm.bookId}
+              onChange={(event) =>
+                setOrderForm({ ...orderForm, bookId: event.target.value })
+              }
+              required
+            >
+              <option value="">ជ្រើសរើសសៀវភៅ</option>
+              {books.map((book) => (
+                <option key={book.id} value={book.id} disabled={book.stock <= 0}>
+                  {book.title} - {currency.format(book.sellPrice)} - ស្តុក {book.stock}
+                </option>
+              ))}
+            </select>
+          </label>
+
+          <label>
+            ឈ្មោះអតិថិជន
+            <input
+              value={orderForm.customerName}
+              onChange={(event) =>
+                setOrderForm({ ...orderForm, customerName: event.target.value })
+              }
+              placeholder="អតិថិជនទូទៅ"
+            />
+          </label>
+
+          <div className="row-grid">
+            <label>
+              ចំនួន
+              <input
+                type="number"
+                min="1"
+                step="1"
+                value={orderForm.quantity}
+                onChange={(event) =>
+                  setOrderForm({ ...orderForm, quantity: event.target.value })
+                }
+                required
+              />
+            </label>
+
+            <label>
+              បញ្ចុះតម្លៃ
+              <input
+                type="number"
+                min="0"
+                step="0.01"
+                value={orderForm.discount}
+                onChange={(event) =>
+                  setOrderForm({ ...orderForm, discount: event.target.value })
+                }
+              />
+            </label>
+          </div>
+
+          <section className="order-preview">
+          <div>
+            <span>ចំនួនគិតប្រាក់</span>
+            <strong>{orderQuantity}</strong>
+          </div>
+          <div>
+            <span>តម្លៃលក់</span>
+            <strong>{currency.format(selectedOrderBook?.sellPrice ?? 0)}</strong>
+          </div>
+            <div>
+              <span>សរុបមុនបញ្ចុះ</span>
+              <strong>{currency.format(orderSubtotal)}</strong>
+            </div>
+            <div>
+              <span>បញ្ចុះតម្លៃ</span>
+              <strong>{currency.format(orderDiscount)}</strong>
+            </div>
+            <div className="order-total">
+              <span>សរុបត្រូវបង់</span>
+              <strong>{currency.format(orderTotal)}</strong>
+            </div>
+          </section>
+
+          {selectedOrderBook ? (
+            <p className="field-hint">
+              ការលក់នេះប្រើតម្លៃលក់ដែលបានរក្សាទុកសម្រាប់ {selectedOrderBook.title}។ ស្តុកនឹងថយពី{" "}
+              {selectedOrderBook.stock} ទៅ {Math.max(selectedOrderBook.stock - orderQuantity, 0)}។
+            </p>
+          ) : null}
+
+          {orderSuccessMessage ? <p className="feedback success">{orderSuccessMessage}</p> : null}
+
+          <button type="submit" className="primary-button" disabled={orderSaving}>
+            {orderSaving ? "កំពុងរក្សាទុក..." : "រក្សាទុកការលក់"}
+          </button>
+        </form>
+      </article>
+
+      <article className="panel">
+        <div className="panel-header">
+          <div>
+            <p className="section-label">ការលក់</p>
+            <h2>កំណត់ត្រាការលក់</h2>
+          </div>
+          <div className="panel-actions">
+            <button type="button" className="secondary-button" onClick={handleExportOrderReport}>
+              នាំចេញ {orderPeriodLabels[orderPeriod]}
+            </button>
+            <button type="button" className="secondary-button" onClick={handlePrintOrderReport}>
+              បោះពុម្ព {orderPeriodLabels[orderPeriod]}
+            </button>
+          </div>
+        </div>
+
+        <div className="period-tabs" aria-label="Order record period">
+          {(["daily", "weekly", "monthly", "all"] as OrderPeriod[]).map((period) => (
+            <button
+              key={period}
+              type="button"
+              className={`period-tab ${orderPeriod === period ? "active" : ""}`}
+              onClick={() => setOrderPeriod(period)}
+            >
+              {orderPeriodLabels[period]}
+            </button>
+          ))}
+        </div>
+
+        <section className="inline-metrics">
+          <div className="status-box">
+            <span>វិក្កយបត្រ</span>
+            <strong>{orderRecordSummary.orderCount}</strong>
+          </div>
+          <div className="status-box">
+            <span>បានលក់</span>
+            <strong>{orderRecordSummary.soldUnits}</strong>
+          </div>
+          <div className="status-box">
+            <span>បញ្ចុះតម្លៃ</span>
+            <strong>{currency.format(orderRecordSummary.totalDiscount)}</strong>
+          </div>
+          <div className="status-box">
+            <span>ចំណូលសុទ្ធ</span>
+            <strong>{currency.format(orderRecordSummary.netSales)}</strong>
+          </div>
+        </section>
+
+        {loading ? (
+          <div className="empty-state">កំពុងទាញទិន្នន័យ...</div>
         ) : filteredOrders.length === 0 ? (
-          <div className="empty-state">No sale records for this period.</div>
+          <div className="empty-state">មិនមានកំណត់ត្រាលក់សម្រាប់រយៈពេលនេះទេ។</div>
         ) : (
           <div className="table-wrap">
             <table>
               <thead>
                 <tr>
-                  <th>Order</th>
-                  <th>Book</th>
-                  <th>Qty</th>
-                  <th>Sell price</th>
-                  <th>Discount</th>
-                  <th>Total</th>
-                  <th>Date</th>
-                  <th>Action</th>
+                  <th>លេខ</th>
+                  <th>សៀវភៅ</th>
+                  <th>ចំនួន</th>
+                  <th>តម្លៃលក់</th>
+                  <th>បញ្ចុះ</th>
+                  <th>សរុប</th>
+                  <th>ថ្ងៃ</th>
+                  <th>សកម្មភាព</th>
                 </tr>
               </thead>
               <tbody>
@@ -1216,9 +1627,17 @@ function App() {
                       <button
                         type="button"
                         className="table-action"
-                        onClick={() => handlePrintInvoice(order)}
+                        onClick={() => {
+                          const invoice = filteredInvoices.find(
+                            (invoiceItem) =>
+                              invoiceItem.invoiceCode === (order.invoiceCode || `INV-${order.id}`)
+                          );
+                          if (invoice) {
+                            handlePrintInvoice(invoice);
+                          }
+                        }}
                       >
-                        Print invoice
+                        វិក្កយបត្រ
                       </button>
                     </td>
                   </tr>
@@ -1236,14 +1655,14 @@ function App() {
       <article className="panel">
         <div className="panel-header">
           <div>
-            <p className="section-label">New expense</p>
-            <h2>Save business cost</h2>
+            <p className="section-label">ចំណាយថ្មី</p>
+            <h2>រក្សាទុកចំណាយអាជីវកម្ម</h2>
           </div>
         </div>
 
         <form className="form-grid" onSubmit={handleExpenseSubmit}>
           <label>
-            Category
+            ប្រភេទ
             <select
               value={expenseForm.category}
               onChange={(event) => setExpenseForm({ ...expenseForm, category: event.target.value })}
@@ -1257,7 +1676,7 @@ function App() {
 
           <div className="row-grid">
             <label>
-              Amount
+              ចំនួនទឹកប្រាក់
               <input
                 type="number"
                 min="0"
@@ -1269,7 +1688,7 @@ function App() {
             </label>
 
             <label>
-              Date
+              ថ្ងៃ
               <input
                 type="date"
                 value={expenseForm.spentOn}
@@ -1280,7 +1699,7 @@ function App() {
           </div>
 
           <label>
-            Note
+            កំណត់ចំណាំ
             <input
               value={expenseForm.note}
               onChange={(event) => setExpenseForm({ ...expenseForm, note: event.target.value })}
@@ -1294,7 +1713,7 @@ function App() {
           ) : null}
 
           <button type="submit" className="primary-button" disabled={expenseSaving}>
-            {expenseSaving ? "Saving..." : "Save expense"}
+            {expenseSaving ? "កំពុងរក្សាទុក..." : "រក្សាទុកចំណាយ"}
           </button>
         </form>
       </article>
@@ -1302,14 +1721,14 @@ function App() {
       <article className="panel">
         <div className="panel-header">
           <div>
-            <p className="section-label">Expense summary</p>
-            <h2>Saved entries</h2>
+            <p className="section-label">សរុបចំណាយ</p>
+            <h2>កំណត់ត្រាដែលបានរក្សាទុក</h2>
           </div>
         </div>
 
         <div className="stack-list">
           <div className="stack-row">
-            <span>Total expense</span>
+            <span>ចំណាយសរុប</span>
             <strong>{currency.format(report.expenses.totalExpense)}</strong>
           </div>
           <div className="stack-row">
@@ -1317,22 +1736,22 @@ function App() {
             <strong>{currency.format(report.expenses.boostPage)}</strong>
           </div>
           <div className="stack-row">
-            <span>Delivery</span>
+            <span>ដឹកជញ្ជូន</span>
             <strong>{currency.format(report.expenses.delivery)}</strong>
           </div>
           <div className="stack-row">
-            <span>Packaging</span>
+            <span>វេចខ្ចប់</span>
             <strong>{currency.format(report.expenses.packaging)}</strong>
           </div>
           <div className="stack-row">
-            <span>Other</span>
+            <span>ផ្សេងៗ</span>
             <strong>{currency.format(report.expenses.other)}</strong>
           </div>
         </div>
 
-        <div className="subsection-title">Expense list</div>
+        <div className="subsection-title">បញ្ជីចំណាយ</div>
         {expenses.length === 0 ? (
-          <div className="empty-state compact">No expenses saved yet.</div>
+          <div className="empty-state compact">មិនទាន់មានចំណាយទេ។</div>
         ) : (
           <div className="expense-list">
             {expenses.map((expense) => (
@@ -1356,15 +1775,15 @@ function App() {
     <>
       <section className="stats-grid">
         <article className="stat-card">
-          <span>Net sales</span>
+          <span>ចំណូលសុទ្ធ</span>
           <strong>{currency.format(report.finance.actualNetSales)}</strong>
         </article>
         <article className="stat-card">
-          <span>Discounts</span>
+          <span>បញ្ចុះតម្លៃ</span>
           <strong>{currency.format(report.orders.totalDiscount)}</strong>
         </article>
         <article className="stat-card">
-          <span>Net after expenses</span>
+          <span>ចំណេញក្រោយចំណាយ</span>
           <strong
             className={
               report.finance.actualNetAfterExpense >= 0 ? "profit-positive" : "profit-negative"
@@ -1374,11 +1793,11 @@ function App() {
           </strong>
         </article>
         <article className="stat-card">
-          <span>Projected revenue</span>
+          <span>ចំណូលរំពឹងទុក</span>
           <strong>{currency.format(report.finance.projectedRevenue)}</strong>
         </article>
         <article className="stat-card">
-          <span>Products</span>
+          <span>សៀវភៅ</span>
           <strong>{report.inventory.totalProducts}</strong>
         </article>
       </section>
@@ -1387,8 +1806,8 @@ function App() {
         <article className="panel">
           <div className="panel-header">
             <div>
-              <p className="section-label">Report</p>
-              <h2>Expense breakdown</h2>
+              <p className="section-label">របាយការណ៍</p>
+              <h2>បំបែកចំណាយ</h2>
             </div>
           </div>
 
@@ -1398,15 +1817,15 @@ function App() {
               <strong>{currency.format(report.expenses.boostPage)}</strong>
             </div>
             <div className="stack-row">
-              <span>Delivery</span>
+              <span>ដឹកជញ្ជូន</span>
               <strong>{currency.format(report.expenses.delivery)}</strong>
             </div>
             <div className="stack-row">
-              <span>Packaging</span>
+              <span>វេចខ្ចប់</span>
               <strong>{currency.format(report.expenses.packaging)}</strong>
             </div>
             <div className="stack-row">
-              <span>Other</span>
+              <span>ផ្សេងៗ</span>
               <strong>{currency.format(report.expenses.other)}</strong>
             </div>
           </div>
@@ -1415,26 +1834,26 @@ function App() {
         <article className="panel">
           <div className="panel-header">
             <div>
-              <p className="section-label">Report</p>
-              <h2>Inventory value</h2>
+              <p className="section-label">របាយការណ៍</p>
+              <h2>តម្លៃស្តុក</h2>
             </div>
           </div>
 
           <div className="stack-list">
             <div className="stack-row">
-              <span>Stock cost value</span>
+              <span>តម្លៃដើមស្តុក</span>
               <strong>{currency.format(report.inventory.totalCostValue)}</strong>
             </div>
             <div className="stack-row">
-              <span>Stock sale value</span>
+              <span>តម្លៃលក់ស្តុក</span>
               <strong>{currency.format(report.inventory.totalSalesValue)}</strong>
             </div>
             <div className="stack-row">
-              <span>Gross margin</span>
+              <span>ចំណេញសរុប</span>
               <strong>{currency.format(report.inventory.totalPotentialProfit)}</strong>
             </div>
             <div className="stack-row">
-              <span>Total units</span>
+              <span>ចំនួនស្តុកសរុប</span>
               <strong>{report.inventory.totalStock}</strong>
             </div>
           </div>
@@ -1445,7 +1864,7 @@ function App() {
 
   const renderBookTable = (items: Book[], emptyMessage: string) => {
     if (loading) {
-      return <div className="empty-state">Loading data...</div>;
+      return <div className="empty-state">កំពុងទាញទិន្នន័យ...</div>;
     }
 
     if (items.length === 0) {
@@ -1457,16 +1876,18 @@ function App() {
         <table>
           <thead>
             <tr>
-              <th>Book</th>
-              <th>Category</th>
-              <th>Buy</th>
-              <th>Sell</th>
-              <th>Stock</th>
-              <th>Cost value</th>
-              <th>Sale value</th>
-              <th>Margin</th>
-              <th>Status</th>
-              <th>Action</th>
+              <th>សៀវភៅ</th>
+              <th>ប្រភេទ</th>
+              <th>ទិញ</th>
+              <th>លក់</th>
+              <th>ស្តុក</th>
+              <th>គិតថ្លៃទិញ</th>
+              <th>ឥតគិតថ្លៃ</th>
+              <th>តម្លៃដើម</th>
+              <th>តម្លៃលក់</th>
+              <th>ចំណេញ</th>
+              <th>ស្ថានភាព</th>
+              <th>សកម្មភាព</th>
             </tr>
           </thead>
           <tbody>
@@ -1477,7 +1898,7 @@ function App() {
                     {book.imageUrls[0] ? (
                       <img src={book.imageUrls[0]} alt={book.title} className="book-thumb" />
                     ) : (
-                      <div className="book-thumb placeholder">Book</div>
+                      <div className="book-thumb placeholder">សៀវភៅ</div>
                     )}
                     <div>
                       <strong>{book.title}</strong>
@@ -1488,7 +1909,31 @@ function App() {
                 <td>{book.category}</td>
                 <td>{currency.format(book.buyPrice)}</td>
                 <td>{currency.format(book.sellPrice)}</td>
-                <td>{book.stock}</td>
+                <td>
+                  <div className="stock-cell">
+                    <button
+                      type="button"
+                      className="stock-step-button"
+                      onClick={() => handleStockAdjust(book, -1)}
+                      disabled={stockAdjustingBookId === book.id || book.stock <= 0}
+                      aria-label={`Decrease stock for ${book.title}`}
+                    >
+                      -
+                    </button>
+                    <strong>{book.stock}</strong>
+                    <button
+                      type="button"
+                      className="stock-step-button"
+                      onClick={() => handleStockAdjust(book, 1)}
+                      disabled={stockAdjustingBookId === book.id}
+                      aria-label={`Increase stock for ${book.title}`}
+                    >
+                      +
+                    </button>
+                  </div>
+                </td>
+                <td>{book.paidStockQuantity}</td>
+                <td>{book.freeStockQuantity}</td>
                 <td>{currency.format(book.costValue)}</td>
                 <td>{currency.format(book.salesValue)}</td>
                 <td>
@@ -1502,13 +1947,15 @@ function App() {
                   </span>
                 </td>
                 <td>
-                  <button
-                    type="button"
-                    className="table-action"
-                    onClick={() => handleEditBook(book)}
-                  >
-                    Edit
-                  </button>
+                  <div className="table-actions">
+                    <button
+                      type="button"
+                      className="table-action"
+                      onClick={() => handleEditBook(book)}
+                    >
+                    កែប្រែ
+                    </button>
+                  </div>
                 </td>
               </tr>
             ))}
@@ -1518,30 +1965,31 @@ function App() {
     );
   };
 
-  const pageTitleMap: Record<Section, { title: string; description: string }> = {
+  const pageTitleMap: Record<Section, { label: string; title: string; description: string }> = {
     dashboard: {
-      title: "Business dashboard",
-      description: "Track products, stock quantity, cost price, sell price, expenses, and projected profit."
+      label: "ផ្ទាំងគ្រប់គ្រង",
+      title: "ផ្ទាំងគ្រប់គ្រង",
+      description: "បង្ហាញតែចំណូលសរុប ចំណាយ និងចំណេញសម្រាប់អាជីវកម្ម។"
     },
     products: {
-      title: "Products",
-      description: "Record every book with images, stock count, buy price, and sell price."
+      label: "បញ្ជីសៀវភៅ",
+      title: "បញ្ជីសៀវភៅ",
+      description: "គ្រប់គ្រងសៀវភៅ តម្លៃ ទំហំស្តុក និងរូបភាព។"
     },
     orders: {
-      title: "Sales Orders",
-      description: "Create sales using the saved sell price, apply discounts, and reduce stock."
-    },
-    stock: {
-      title: "Stock",
-      description: "Watch low stock books and update records before items run out."
+      label: "បញ្ជីលក់",
+      title: "ការលក់",
+      description: "បង្កើតការលក់ បោះពុម្ពវិក្កយបត្រ និងនាំចេញរបាយការណ៍ប្រចាំថ្ងៃ។"
     },
     expenses: {
-      title: "Expenses",
-      description: "Save your business costs and review total expense."
+      label: "ចំណាយ",
+      title: "ចំណាយ",
+      description: "រក្សាទុកចំណាយ និងពិនិត្យចំណាយសរុប។"
     },
     reports: {
-      title: "Reports",
-      description: "Review inventory value, revenue projection, and profit after expenses."
+      label: "របាយការណ៍",
+      title: "របាយការណ៍",
+      description: "ពិនិត្យតម្លៃស្តុក ចំណូល និងចំណេញក្រោយចំណាយ។"
     }
   };
 
@@ -1552,7 +2000,7 @@ function App() {
           <img src="/logo.jpg" alt="" className="sidebar-logo-mark" aria-hidden="true" />
           <div className="brand-copy">
             <strong>BOOKIFY</strong>
-            <span>Bookshop</span>
+            <span>ហាងសៀវភៅ</span>
           </div>
         </div>
 
@@ -1570,8 +2018,8 @@ function App() {
         </nav>
 
         <div className="sidebar-note">
-          <strong>Product records</strong>
-          <span>Books, stock quantity, buy price, sell price, and expenses are stored in MySQL.</span>
+          <strong>ទិន្នន័យអាជីវកម្ម</strong>
+          <span>សៀវភៅ ស្តុក តម្លៃទិញ តម្លៃលក់ ការលក់ និងចំណាយត្រូវបានរក្សាទុកក្នុង MySQL។</span>
         </div>
       </aside>
 
@@ -1580,16 +2028,16 @@ function App() {
           <button type="button" className="menu-button" aria-label="Toggle menu">
             =
           </button>
-          <span>Stock Management System - Bookify - Admin</span>
+          <span>ប្រព័ន្ធគ្រប់គ្រងស្តុក - Bookify - Admin</span>
           <div className="admin-pill">
             <span className="admin-avatar">A</span>
-            Administrator Admin
+            អ្នកគ្រប់គ្រង
           </div>
         </header>
 
         <header className="page-header">
           <div>
-            <p className="page-label">{activeSection}</p>
+            <p className="page-label">{pageTitleMap[activeSection].label}</p>
             <h1>{pageTitleMap[activeSection].title}</h1>
             <p className="page-copy">{pageTitleMap[activeSection].description}</p>
           </div>
@@ -1599,8 +2047,7 @@ function App() {
 
         {activeSection === "dashboard" ? renderDashboard() : null}
         {activeSection === "products" ? renderProducts() : null}
-        {activeSection === "orders" ? renderOrders() : null}
-        {activeSection === "stock" ? renderStock() : null}
+        {activeSection === "orders" ? renderInvoiceOrders() : null}
         {activeSection === "expenses" ? renderExpenses() : null}
         {activeSection === "reports" ? renderReports() : null}
       </section>

@@ -34,9 +34,9 @@ export const getSummaryReport = async (_req: Request, res: Response) => {
     `SELECT
       COUNT(*) AS totalProducts,
       COALESCE(SUM(stock), 0) AS totalStock,
-      COALESCE(SUM(buy_price * stock), 0) AS totalCostValue,
+      COALESCE(SUM(buy_price * (stock - FLOOR(stock / 6))), 0) AS totalCostValue,
       COALESCE(SUM(sell_price * stock), 0) AS totalSalesValue,
-      COALESCE(SUM((sell_price - buy_price) * stock), 0) AS totalPotentialProfit,
+      COALESCE(SUM((sell_price * stock) - (buy_price * (stock - FLOOR(stock / 6)))), 0) AS totalPotentialProfit,
       COALESCE(SUM(CASE WHEN stock > low_stock_threshold THEN 1 ELSE 0 END), 0) AS inStock,
       COALESCE(SUM(CASE WHEN stock > 0 AND stock <= low_stock_threshold THEN 1 ELSE 0 END), 0) AS lowStock,
       COALESCE(SUM(CASE WHEN stock <= 0 THEN 1 ELSE 0 END), 0) AS outOfStock
@@ -55,11 +55,11 @@ export const getSummaryReport = async (_req: Request, res: Response) => {
 
   const [orderRows] = await pool.query<OrderSummaryRow[]>(
     `SELECT
-      COUNT(*) AS totalOrders,
+      COUNT(DISTINCT invoice_code) AS totalOrders,
       COALESCE(SUM(quantity), 0) AS soldUnits,
       COALESCE(SUM(unit_sell_price * quantity), 0) AS grossSales,
       COALESCE(SUM(discount), 0) AS totalDiscount,
-      COALESCE(SUM(total_amount), 0) AS netSales
+      COALESCE(SUM(total_amount + delivery_fee), 0) AS netSales
     FROM sales_orders`
   );
 

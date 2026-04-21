@@ -16,6 +16,16 @@ type BookRow = RowDataPacket & {
   updated_at: string | Date;
 };
 
+type StockAdjustmentRow = RowDataPacket & {
+  id: number;
+  book_id: number;
+  book_title: string;
+  quantity_added: number;
+  stock_after: number;
+  note: string | null;
+  created_at: string | Date;
+};
+
 type CreateBookBody = {
   title?: string;
   category?: string;
@@ -25,6 +35,11 @@ type CreateBookBody = {
   stock?: number | string;
   lowStockThreshold?: number | string;
   imageUrls?: string[] | string;
+};
+
+type AddStockBody = {
+  quantity?: number | string;
+  note?: string;
 };
 
 const parseImageUrls = (value: string): string[] => {
@@ -63,6 +78,8 @@ const getStockStatus = (stock: number, lowStockThreshold: number) => {
 const getPublicBaseUrl = (req: Request) =>
   process.env.PUBLIC_API_URL?.trim() || `${req.protocol}://${req.get("host")}`;
 
+const getPaidStockQuantity = (stock: number) => stock - Math.floor(stock / 6);
+
 const mapBook = (row: BookRow, req: Request) => ({
   id: row.id,
   title: row.title,
@@ -76,11 +93,24 @@ const mapBook = (row: BookRow, req: Request) => ({
     item.startsWith("/uploads/") ? `${getPublicBaseUrl(req)}${item}` : item
   ),
   stockStatus: getStockStatus(row.stock, row.low_stock_threshold),
-  costValue: Number(row.buy_price) * row.stock,
+  paidStockQuantity: getPaidStockQuantity(row.stock),
+  freeStockQuantity: Math.floor(row.stock / 6),
+  costValue: Number(row.buy_price) * getPaidStockQuantity(row.stock),
   salesValue: Number(row.sell_price) * row.stock,
-  potentialProfit: (Number(row.sell_price) - Number(row.buy_price)) * row.stock,
+  potentialProfit:
+    Number(row.sell_price) * row.stock - Number(row.buy_price) * getPaidStockQuantity(row.stock),
   createdAt: new Date(row.created_at).toISOString(),
   updatedAt: new Date(row.updated_at).toISOString()
+});
+
+const mapStockAdjustment = (row: StockAdjustmentRow) => ({
+  id: row.id,
+  bookId: row.book_id,
+  bookTitle: row.book_title,
+  quantityAdded: row.quantity_added,
+  stockAfter: row.stock_after,
+  note: row.note ?? "",
+  createdAt: new Date(row.created_at).toISOString()
 });
 
 const validateBody = (body: CreateBookBody) => {
@@ -145,6 +175,22 @@ const validateBody = (body: CreateBookBody) => {
   };
 };
 
+const validateStockBody = (body: AddStockBody) => {
+  const quantity = toNumber(body.quantity);
+  const note = body.note?.trim() ?? "";
+
+  if (!Number.isInteger(quantity) || quantity === 0) {
+    return { message: "Stock adjustment must be a non-zero whole number." };
+  }
+
+  return {
+    value: {
+      quantity,
+      note
+    }
+  };
+};
+
 export const listBooks = async (req: Request, res: Response) => {
   const [rows] = await pool.query<BookRow[]>(
     `SELECT
@@ -164,6 +210,24 @@ export const listBooks = async (req: Request, res: Response) => {
   );
 
   res.json(rows.map((row) => mapBook(row, req)));
+};
+
+export const listStockAdjustments = async (_req: Request, res: Response) => {
+  const [rows] = await pool.query<StockAdjustmentRow[]>(
+    `SELECT
+      stock_adjustments.id,
+      stock_adjustments.book_id,
+      books.title AS book_title,
+      stock_adjustments.quantity_added,
+      stock_adjustments.stock_after,
+      stock_adjustments.note,
+      stock_adjustments.created_at
+    FROM stock_adjustments
+    INNER JOIN books ON books.id = stock_adjustments.book_id
+    ORDER BY stock_adjustments.created_at DESC, stock_adjustments.id DESC`
+  );
+
+  res.json(rows.map(mapStockAdjustment));
 };
 
 export const createBook = async (req: Request, res: Response) => {
@@ -307,4 +371,91 @@ export const updateBook = async (req: Request, res: Response) => {
   );
 
   res.json(mapBook(rows[0], req));
+};
+
+export const addBookStock = async (req: Request, res: Response) => {
+  const bookId = Number(req.params.id);
+
+  if (!Number.isInteger(bookId) || bookId <= 0) {
+    return res.status(400).json({ message: "Book id is invalid." });
+  }
+
+  const validation = validateStockBody(req.body as AddStockBody);
+
+  if ("message" in validation) {
+    return res.status(400).json({ message: validation.message });
+  }
+
+  const { quantity, note } = validation.value;
+  const connection = await pool.getConnection();
+
+  try {
+    await connection.beginTransaction();
+
+    const [bookRows] = await connection.query<BookRow[]>(
+      `SELECT
+        id,
+        title,
+        category,
+        buy_price,
+        sell_price,
+        page_count,
+        stock,
+        low_stock_threshold,
+        image_urls,
+        created_at,
+        updated_at
+      FROM books
+      WHERE id = ?
+      FOR UPDATE`,
+      [bookId]
+    );
+
+    if (bookRows.length === 0) {
+      await connection.rollback();
+      return res.status(404).json({ message: "Book not found." });
+    }
+
+    const stockAfter = bookRows[0].stock + quantity;
+
+    if (stockAfter < 0) {
+      await connection.rollback();
+      return res.status(400).json({ message: "Stock cannot be reduced below 0." });
+    }
+
+    await connection.execute<ResultSetHeader>("UPDATE books SET stock = ? WHERE id = ?", [
+      stockAfter,
+      bookId
+    ]);
+
+    const [result] = await connection.execute<ResultSetHeader>(
+      `INSERT INTO stock_adjustments (book_id, quantity_added, stock_after, note)
+      VALUES (?, ?, ?, ?)`,
+      [bookId, quantity, stockAfter, note || null]
+    );
+
+    await connection.commit();
+
+    const [rows] = await pool.query<StockAdjustmentRow[]>(
+      `SELECT
+        stock_adjustments.id,
+        stock_adjustments.book_id,
+        books.title AS book_title,
+        stock_adjustments.quantity_added,
+        stock_adjustments.stock_after,
+        stock_adjustments.note,
+        stock_adjustments.created_at
+      FROM stock_adjustments
+      INNER JOIN books ON books.id = stock_adjustments.book_id
+      WHERE stock_adjustments.id = ?`,
+      [result.insertId]
+    );
+
+    res.status(201).json(mapStockAdjustment(rows[0]));
+  } catch (error) {
+    await connection.rollback();
+    throw error;
+  } finally {
+    connection.release();
+  }
 };

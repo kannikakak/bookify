@@ -1,11 +1,14 @@
 import {
   Book,
+  AddStockPayload,
   CreateBookPayload,
   CreateExpensePayload,
+  CreateInvoicePayload,
   CreateOrderPayload,
   Expense,
   Order,
-  ReportSummary
+  ReportSummary,
+  StockRecord
 } from "./types";
 
 const API_URL = import.meta.env.VITE_API_URL ?? "http://localhost:5000/api";
@@ -57,6 +60,35 @@ export const updateBook = async (
   const response = await fetch(`${API_URL}/books/${bookId}`, {
     method: "PUT",
     body: formData
+  });
+
+  if (!response.ok) {
+    throw new Error(await getErrorMessage(response));
+  }
+
+  return response.json();
+};
+
+export const fetchStockRecords = async (): Promise<StockRecord[]> => {
+  const response = await fetch(`${API_URL}/books/stock-records`);
+
+  if (!response.ok) {
+    throw new Error(await getErrorMessage(response));
+  }
+
+  return response.json();
+};
+
+export const addBookStock = async (
+  bookId: number,
+  payload: AddStockPayload
+): Promise<StockRecord> => {
+  const response = await fetch(`${API_URL}/books/${bookId}/stock`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json"
+    },
+    body: JSON.stringify(payload)
   });
 
   if (!response.ok) {
@@ -137,6 +169,32 @@ export const createOrder = async (payload: CreateOrderPayload): Promise<Order> =
   }
 
   return response.json();
+};
+
+export const createInvoice = async (payload: CreateInvoicePayload): Promise<Order[]> => {
+  const response = await fetch(`${API_URL}/orders/invoices`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json"
+    },
+    body: JSON.stringify(payload)
+  });
+
+  if (!response.ok) {
+    throw new Error(await getErrorMessage(response));
+  }
+
+  return response.json();
+};
+
+export const deleteInvoice = async (invoiceCode: string): Promise<void> => {
+  const response = await fetch(`${API_URL}/orders/invoices/${encodeURIComponent(invoiceCode)}`, {
+    method: "DELETE"
+  });
+
+  if (!response.ok) {
+    throw new Error(await getErrorMessage(response));
+  }
 };
 
 export const fetchReportSummary = async (): Promise<ReportSummary> => {

@@ -26,14 +26,31 @@ CREATE TABLE IF NOT EXISTS expenses (
 
 CREATE TABLE IF NOT EXISTS sales_orders (
   id INT NOT NULL AUTO_INCREMENT PRIMARY KEY,
+  invoice_code VARCHAR(40) NOT NULL,
   book_id INT NOT NULL,
   customer_name VARCHAR(160) NOT NULL,
   quantity INT NOT NULL,
+  paid_quantity INT NOT NULL DEFAULT 0,
+  free_quantity INT NOT NULL DEFAULT 0,
+  unit_buy_price DECIMAL(10, 2) NOT NULL DEFAULT 0.00,
   unit_sell_price DECIMAL(10, 2) NOT NULL,
   discount DECIMAL(10, 2) NOT NULL DEFAULT 0.00,
   total_amount DECIMAL(10, 2) NOT NULL,
+  delivery_fee DECIMAL(10, 2) NOT NULL DEFAULT 0.00,
   ordered_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
   CONSTRAINT fk_sales_orders_book
+    FOREIGN KEY (book_id) REFERENCES books(id)
+    ON DELETE RESTRICT
+);
+
+CREATE TABLE IF NOT EXISTS stock_adjustments (
+  id INT NOT NULL AUTO_INCREMENT PRIMARY KEY,
+  book_id INT NOT NULL,
+  quantity_added INT NOT NULL,
+  stock_after INT NOT NULL,
+  note VARCHAR(255) NULL,
+  created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  CONSTRAINT fk_stock_adjustments_book
     FOREIGN KEY (book_id) REFERENCES books(id)
     ON DELETE RESTRICT
 );

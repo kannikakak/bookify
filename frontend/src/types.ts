@@ -11,6 +11,8 @@ export type Book = {
   lowStockThreshold: number;
   imageUrls: string[];
   stockStatus: StockStatus;
+  paidStockQuantity: number;
+  freeStockQuantity: number;
   costValue: number;
   salesValue: number;
   potentialProfit: number;
@@ -27,6 +29,21 @@ export type CreateBookPayload = {
   stock: number;
   lowStockThreshold: number;
   imageUrls: string[];
+};
+
+export type StockRecord = {
+  id: number;
+  bookId: number;
+  bookTitle: string;
+  quantityAdded: number;
+  stockAfter: number;
+  note: string;
+  createdAt: string;
+};
+
+export type AddStockPayload = {
+  quantity: number;
+  note: string;
 };
 
 export type Expense = {
@@ -47,13 +64,18 @@ export type CreateExpensePayload = {
 
 export type Order = {
   id: number;
+  invoiceCode: string;
   bookId: number;
   bookTitle: string;
   customerName: string;
   quantity: number;
+  paidQuantity: number;
+  freeQuantity: number;
+  unitBuyPrice: number;
   unitSellPrice: number;
   discount: number;
   totalAmount: number;
+  deliveryFee: number;
   orderedAt: string;
 };
 
@@ -62,6 +84,16 @@ export type CreateOrderPayload = {
   customerName: string;
   quantity: number;
   discount: number;
+};
+
+export type CreateInvoicePayload = {
+  customerName: string;
+  deliveryFee: number;
+  items: Array<{
+    bookId: number;
+    quantity: number;
+    discount: number;
+  }>;
 };
 
 export type ReportSummary = {
