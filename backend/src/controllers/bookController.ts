@@ -250,12 +250,13 @@ export const createBook = async (req: Request, res: Response) => {
 
   const [result] = await pool.execute<ResultSetHeader>(
     `INSERT INTO books
-      (title, category, buy_price, sell_price, page_count, stock, low_stock_threshold, image_urls)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+      (title, category, buy_price, sell_price, price, page_count, stock, low_stock_threshold, image_urls)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     [
       title,
       category,
       buyPrice,
+      sellPrice,
       sellPrice,
       pageCount,
       stock,
@@ -336,6 +337,7 @@ export const updateBook = async (req: Request, res: Response) => {
       category = ?,
       buy_price = ?,
       sell_price = ?,
+      price = ?,
       page_count = ?,
       stock = ?,
       low_stock_threshold = ?,
@@ -345,6 +347,7 @@ export const updateBook = async (req: Request, res: Response) => {
       title,
       category,
       buyPrice,
+      sellPrice,
       sellPrice,
       pageCount,
       stock,
