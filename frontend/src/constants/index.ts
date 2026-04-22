@@ -78,7 +78,11 @@ export const EMPTY_REPORT: ReportSummary = {
     totalCost: 0,
     grossSales: 0,
     totalDiscount: 0,
-    netSales: 0
+    netSales: 0,
+    deliveryFee: 0,
+    deliveryPhnomPenh: 0,
+    deliveryProvince: 0,
+    grandTotal: 0
   },
   finance: {
     projectedRevenue: 0,

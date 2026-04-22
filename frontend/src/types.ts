@@ -78,6 +78,7 @@ export type Order = {
   discount: number;
   totalAmount: number;
   deliveryFee: number;
+  deliveryArea: "phnom-penh" | "province";
   orderedAt: string;
 };
 
@@ -95,6 +96,7 @@ export type CreateInvoicePayload = {
   customerPhone: string;
   customerAddress: string;
   deliveryFee: number;
+  deliveryArea: "phnom-penh" | "province";
   items: Array<{
     bookId: number;
     quantity: number;
@@ -127,6 +129,10 @@ export type ReportSummary = {
     grossSales: number;
     totalDiscount: number;
     netSales: number;
+    deliveryFee: number;
+    deliveryPhnomPenh: number;
+    deliveryProvince: number;
+    grandTotal: number;
   };
   finance: {
     projectedRevenue: number;

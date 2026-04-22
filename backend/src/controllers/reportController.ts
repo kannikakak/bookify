@@ -28,6 +28,10 @@ type OrderSummaryRow = RowDataPacket & {
   grossSales: number | string | null;
   totalDiscount: number | string | null;
   netSales: number | string | null;
+  deliveryFee: number | string | null;
+  deliveryPhnomPenh: number | string | null;
+  deliveryProvince: number | string | null;
+  grandTotal: number | string | null;
 };
 
 export const getSummaryReport = async (_req: Request, res: Response) => {
@@ -62,7 +66,11 @@ export const getSummaryReport = async (_req: Request, res: Response) => {
       COALESCE(SUM(unit_buy_price * quantity), 0) AS totalCost,
       COALESCE(SUM(unit_sell_price * quantity), 0) AS grossSales,
       COALESCE(SUM(discount), 0) AS totalDiscount,
-      COALESCE(SUM(total_amount), 0) AS netSales
+      COALESCE(SUM(total_amount), 0) AS netSales,
+      COALESCE(SUM(delivery_fee), 0) AS deliveryFee,
+      COALESCE(SUM(CASE WHEN delivery_area = 'phnom-penh' THEN delivery_fee ELSE 0 END), 0) AS deliveryPhnomPenh,
+      COALESCE(SUM(CASE WHEN delivery_area = 'province' THEN delivery_fee ELSE 0 END), 0) AS deliveryProvince,
+      COALESCE(SUM(total_amount + delivery_fee), 0) AS grandTotal
     FROM sales_orders`
   );
 
@@ -75,6 +83,7 @@ export const getSummaryReport = async (_req: Request, res: Response) => {
   const totalExpense = Number(expense.totalExpense ?? 0);
   const totalCost = Number(orders.totalCost ?? 0);
   const netSales = Number(orders.netSales ?? 0);
+  const deliveryFee = Number(orders.deliveryFee ?? 0);
   const actualGrossProfit = netSales - totalCost;
 
   res.json({
@@ -101,7 +110,11 @@ export const getSummaryReport = async (_req: Request, res: Response) => {
       totalCost,
       grossSales: Number(orders.grossSales ?? 0),
       totalDiscount: Number(orders.totalDiscount ?? 0),
-      netSales
+      netSales,
+      deliveryFee,
+      deliveryPhnomPenh: Number(orders.deliveryPhnomPenh ?? 0),
+      deliveryProvince: Number(orders.deliveryProvince ?? 0),
+      grandTotal: Number(orders.grandTotal ?? netSales + deliveryFee)
     },
     finance: {
       projectedRevenue: totalSalesValue,

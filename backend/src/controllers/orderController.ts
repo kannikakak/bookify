@@ -18,6 +18,7 @@ type OrderRow = RowDataPacket & {
   discount: number | string;
   total_amount: number | string;
   delivery_fee: number | string;
+  delivery_area: string;
   ordered_at: string | Date;
 };
 
@@ -43,6 +44,7 @@ type CreateInvoiceBody = {
   customerPhone?: string;
   customerAddress?: string;
   deliveryFee?: number | string;
+  deliveryArea?: string;
   items?: Array<{
     bookId?: number | string;
     quantity?: number | string;
@@ -62,6 +64,9 @@ const toNumber = (value: number | string | undefined) => {
   return Number.NaN;
 };
 
+const normalizeDeliveryArea = (value: string | undefined) =>
+  value === "phnom-penh" ? "phnom-penh" : "province";
+
 const mapOrder = (row: OrderRow) => ({
   id: row.id,
   invoiceCode: row.invoice_code,
@@ -78,6 +83,7 @@ const mapOrder = (row: OrderRow) => ({
   discount: Number(row.discount),
   totalAmount: Number(row.total_amount),
   deliveryFee: Number(row.delivery_fee),
+  deliveryArea: normalizeDeliveryArea(row.delivery_area),
   orderedAt: new Date(row.ordered_at).toISOString()
 });
 
@@ -118,6 +124,7 @@ const validateInvoiceBody = (body: CreateInvoiceBody) => {
   const customerPhone = body.customerPhone?.trim() || "";
   const customerAddress = body.customerAddress?.trim() || "";
   const deliveryFee = body.deliveryFee === undefined || body.deliveryFee === "" ? 0 : toNumber(body.deliveryFee);
+  const deliveryArea = normalizeDeliveryArea(body.deliveryArea);
   const items = Array.isArray(body.items) ? body.items : [];
 
   if (Number.isNaN(deliveryFee) || deliveryFee < 0) {
@@ -148,7 +155,7 @@ const validateInvoiceBody = (body: CreateInvoiceBody) => {
     }
   }
 
-  return { value: { customerName, customerPhone, customerAddress, deliveryFee, items: values } };
+  return { value: { customerName, customerPhone, customerAddress, deliveryFee, deliveryArea, items: values } };
 };
 
 export const listOrders = async (_req: Request, res: Response) => {
@@ -169,6 +176,7 @@ export const listOrders = async (_req: Request, res: Response) => {
       sales_orders.discount,
       sales_orders.total_amount,
       sales_orders.delivery_fee,
+      sales_orders.delivery_area,
       sales_orders.ordered_at
     FROM sales_orders
     INNER JOIN books ON books.id = sales_orders.book_id
@@ -265,6 +273,7 @@ export const createOrder = async (req: Request, res: Response) => {
         sales_orders.discount,
         sales_orders.total_amount,
         sales_orders.delivery_fee,
+        sales_orders.delivery_area,
         sales_orders.ordered_at
       FROM sales_orders
       INNER JOIN books ON books.id = sales_orders.book_id
@@ -288,7 +297,7 @@ export const createInvoice = async (req: Request, res: Response) => {
     return res.status(400).json({ message: validation.message });
   }
 
-  const { customerName, customerPhone, customerAddress, deliveryFee, items } = validation.value;
+  const { customerName, customerPhone, customerAddress, deliveryFee, deliveryArea, items } = validation.value;
   const invoiceCode = `INV-${Date.now()}`;
   const connection = await pool.getConnection();
   const insertedIds: number[] = [];
@@ -328,8 +337,8 @@ export const createInvoice = async (req: Request, res: Response) => {
       const totalAmount = subtotal - item.discount;
       const [result] = await connection.execute<ResultSetHeader>(
         `INSERT INTO sales_orders
-          (invoice_code, book_id, customer_name, customer_phone, customer_address, quantity, paid_quantity, free_quantity, unit_buy_price, unit_sell_price, discount, total_amount, delivery_fee)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          (invoice_code, book_id, customer_name, customer_phone, customer_address, quantity, paid_quantity, free_quantity, unit_buy_price, unit_sell_price, discount, total_amount, delivery_fee, delivery_area)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         [
           invoiceCode,
           item.bookId,
@@ -343,7 +352,8 @@ export const createInvoice = async (req: Request, res: Response) => {
           unitSellPrice,
           item.discount,
           totalAmount,
-          index === 0 ? deliveryFee : 0
+          index === 0 ? deliveryFee : 0,
+          deliveryArea
         ]
       );
 
@@ -370,6 +380,7 @@ export const createInvoice = async (req: Request, res: Response) => {
         sales_orders.discount,
         sales_orders.total_amount,
         sales_orders.delivery_fee,
+        sales_orders.delivery_area,
         sales_orders.ordered_at
       FROM sales_orders
       INNER JOIN books ON books.id = sales_orders.book_id

@@ -58,6 +58,7 @@ type OrderFormState = {
   quantity: string;
   discount: string;
   deliveryFee: string;
+  deliveryArea: "phnom-penh" | "province";
 };
 
 type InvoiceLineFormState = {
@@ -71,6 +72,7 @@ type InvoiceGroup = {
   customerName: string;
   customerPhone: string;
   customerAddress: string;
+  deliveryArea: "phnom-penh" | "province";
   orderedAt: string;
   items: Order[];
   deliveryFee: number;
@@ -134,7 +136,8 @@ const initialOrderForm: OrderFormState = {
   customerAddress: "",
   quantity: "1",
   discount: "0",
-  deliveryFee: "$0.00"
+  deliveryFee: "$0.00",
+  deliveryArea: "phnom-penh"
 };
 
 const initialLoginForm: LoginFormState = {
@@ -316,7 +319,11 @@ const emptyReport: ReportSummary = {
     totalCost: 0,
     grossSales: 0,
     totalDiscount: 0,
-    netSales: 0
+    netSales: 0,
+    deliveryFee: 0,
+    deliveryPhnomPenh: 0,
+    deliveryProvince: 0,
+    grandTotal: 0
   },
   finance: {
     projectedRevenue: 0,
@@ -462,6 +469,7 @@ function App() {
           customerName: first.customerName,
           customerPhone: first.customerPhone,
           customerAddress: first.customerAddress,
+          deliveryArea: first.deliveryArea,
           orderedAt: first.orderedAt,
           items,
           deliveryFee,
@@ -506,9 +514,14 @@ function App() {
           grossSales: summary.grossSales + invoice.subtotal,
           totalDiscount: summary.totalDiscount + invoice.discount,
           deliveryFee: summary.deliveryFee + invoice.deliveryFee,
+          deliveryPhnomPenh:
+            summary.deliveryPhnomPenh + (invoice.deliveryArea === "phnom-penh" ? invoice.deliveryFee : 0),
+          deliveryProvince:
+            summary.deliveryProvince + (invoice.deliveryArea === "province" ? invoice.deliveryFee : 0),
           cost: summary.cost + invoice.cost,
           profit: summary.profit + invoice.profit,
-          netSales: summary.netSales + invoice.total
+          netSales: summary.netSales + (invoice.total - invoice.deliveryFee),
+          grandTotal: summary.grandTotal + invoice.total
         }),
         {
           orderCount: 0,
@@ -516,9 +529,12 @@ function App() {
           grossSales: 0,
           totalDiscount: 0,
           deliveryFee: 0,
+          deliveryPhnomPenh: 0,
+          deliveryProvince: 0,
           cost: 0,
           profit: 0,
-          netSales: 0
+          netSales: 0,
+          grandTotal: 0
         }
       ),
     [filteredInvoices]
@@ -829,6 +845,7 @@ function App() {
         customerPhone: orderForm.customerPhone.trim(),
         customerAddress: orderForm.customerAddress.trim(),
         deliveryFee: parseDeliveryFeeInput(orderForm.deliveryFee || "0"),
+        deliveryArea: orderForm.deliveryArea,
         items: invoiceDraftItems.map((line) => ({
           bookId: Number(line.item.bookId),
           quantity: Number(line.item.quantity),
@@ -1206,6 +1223,10 @@ function App() {
           <span>ចំណូលសរុប</span>
           <strong>{currency.format(orderRecordSummary.netSales)}</strong>
         </article>
+        <article className="stat-card finance-card">
+          <span>ថ្លៃដឹកសរុប</span>
+          <strong>{currency.format(orderRecordSummary.deliveryFee)}</strong>
+        </article>
         <article className="stat-card finance-card profit-card">
           <span>ចំណេញ</span>
           <strong className={dashboardProfit >= 0 ? "profit-positive" : "profit-negative"}>
@@ -1235,6 +1256,22 @@ function App() {
             <div className="stack-row">
               <span>ចំណូលសរុប</span>
               <strong>{currency.format(orderRecordSummary.netSales)}</strong>
+            </div>
+            <div className="stack-row">
+              <span>ថ្លៃដឹកភ្នំពេញ</span>
+              <strong>{currency.format(orderRecordSummary.deliveryPhnomPenh)}</strong>
+            </div>
+            <div className="stack-row">
+              <span>ថ្លៃដឹកតាមខេត្ត</span>
+              <strong>{currency.format(orderRecordSummary.deliveryProvince)}</strong>
+            </div>
+            <div className="stack-row">
+              <span>ថ្លៃដឹកសរុប</span>
+              <strong>{currency.format(orderRecordSummary.deliveryFee)}</strong>
+            </div>
+            <div className="stack-row">
+              <span>សរុបបូកថ្លៃដឹក</span>
+              <strong>{currency.format(orderRecordSummary.grandTotal)}</strong>
             </div>
             <div className="stack-row">
               <span>លុយដើម</span>
@@ -1631,6 +1668,22 @@ function App() {
             <span className="field-hint">បញ្ចូលជា $2.00 ឬ FREE</span>
           </label>
 
+          <label>
+            តំបន់ដឹកជញ្ជូន
+            <select
+              value={orderForm.deliveryArea}
+              onChange={(event) =>
+                setOrderForm({
+                  ...orderForm,
+                  deliveryArea: event.target.value as OrderFormState["deliveryArea"]
+                })
+              }
+            >
+              <option value="phnom-penh">ភ្នំពេញ</option>
+              <option value="province">តាមខេត្ត</option>
+            </select>
+          </label>
+
           <div className="invoice-line-card">
             <div className="invoice-line-controls">
               <div className="book-picker-field">
@@ -1879,6 +1932,18 @@ function App() {
           <div className="status-box">
             <span>ថ្លៃដឹក</span>
             <strong>{currency.format(orderRecordSummary.deliveryFee)}</strong>
+          </div>
+          <div className="status-box">
+            <span>ថ្លៃដឹកភ្នំពេញ</span>
+            <strong>{currency.format(orderRecordSummary.deliveryPhnomPenh)}</strong>
+          </div>
+          <div className="status-box">
+            <span>ថ្លៃដឹកតាមខេត្ត</span>
+            <strong>{currency.format(orderRecordSummary.deliveryProvince)}</strong>
+          </div>
+          <div className="status-box">
+            <span>សរុបបូកថ្លៃដឹក</span>
+            <strong>{currency.format(orderRecordSummary.grandTotal)}</strong>
           </div>
           <div className="status-box">
             <span>សរុប</span>
@@ -2366,6 +2431,10 @@ function App() {
         <article className="stat-card">
           <span>ចំណូលសរុប</span>
           <strong>{currency.format(report.finance.actualNetSales)}</strong>
+        </article>
+        <article className="stat-card">
+          <span>ថ្លៃដឹកសរុប</span>
+          <strong>{currency.format(report.orders.deliveryFee)}</strong>
         </article>
         <article className="stat-card">
           <span>ចំណេញ</span>
