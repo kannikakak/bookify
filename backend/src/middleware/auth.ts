@@ -1,10 +1,37 @@
 import { Request, Response, NextFunction } from "express";
 import crypto from "node:crypto";
+import { CookieOptions } from "express";
 
 const SESSION_COOKIE_NAME = "bookify_session";
 const SESSION_TTL_MS = 7 * 24 * 60 * 60 * 1000;
 
 const getSessionSecret = () => process.env.AUTH_SESSION_SECRET ?? "change-this-bookify-session-secret";
+const parseBoolean = (value: string | undefined, fallback = false) => {
+  if (value === undefined) {
+    return fallback;
+  }
+
+  return value.trim().toLowerCase() === "true";
+};
+
+const getCookieSameSite = (): CookieOptions["sameSite"] => {
+  const sameSite = process.env.AUTH_COOKIE_SAME_SITE?.trim().toLowerCase();
+
+  if (sameSite === "none" || sameSite === "strict" || sameSite === "lax") {
+    return sameSite;
+  }
+
+  return "lax";
+};
+
+const getCookieSecure = () => {
+  const explicitSecure = process.env.AUTH_COOKIE_SECURE;
+  if (explicitSecure !== undefined) {
+    return parseBoolean(explicitSecure, false);
+  }
+
+  return process.env.NODE_ENV === "production" || getCookieSameSite() === "none";
+};
 
 const parseCookies = (cookieHeader: string | undefined) => {
   if (!cookieHeader) {
@@ -85,20 +112,26 @@ export const getSessionFromRequest = (request: Request) => {
 };
 
 export const setSessionCookie = (response: Response, token: string) => {
+  const sameSite = getCookieSameSite();
+  const secure = getCookieSecure();
+
   response.cookie(SESSION_COOKIE_NAME, token, {
     httpOnly: true,
-    sameSite: "lax",
-    secure: process.env.NODE_ENV === "production",
+    sameSite,
+    secure,
     maxAge: SESSION_TTL_MS,
     path: "/"
   });
 };
 
 export const clearSessionCookie = (response: Response) => {
+  const sameSite = getCookieSameSite();
+  const secure = getCookieSecure();
+
   response.clearCookie(SESSION_COOKIE_NAME, {
     httpOnly: true,
-    sameSite: "lax",
-    secure: process.env.NODE_ENV === "production",
+    sameSite,
+    secure,
     path: "/"
   });
 };

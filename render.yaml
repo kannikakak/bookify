@@ -1,0 +1,54 @@
+services:
+  - type: web
+    name: bookify-api
+    env: node
+    rootDir: backend
+    plan: starter
+    autoDeploy: true
+    buildCommand: npm ci && npm run build
+    startCommand: npm run start
+    envVars:
+      - key: NODE_VERSION
+        value: 20
+      - key: FRONTEND_URL
+        value: https://bookify-web.onrender.com,https://your-vercel-app.vercel.app
+      - key: DB_HOST
+        sync: false
+      - key: DB_PORT
+        sync: false
+      - key: DB_USER
+        sync: false
+      - key: DB_PASSWORD
+        sync: false
+      - key: DB_NAME
+        sync: false
+      - key: DB_SSL
+        value: true
+      - key: DB_SSL_REJECT_UNAUTHORIZED
+        value: true
+      - key: DB_SSL_CA
+        sync: false
+      - key: ADMIN_EMAIL
+        sync: false
+      - key: ADMIN_PASSWORD
+        sync: false
+      - key: AUTH_SESSION_SECRET
+        sync: false
+      - key: AUTH_COOKIE_SAME_SITE
+        value: none
+      - key: AUTH_COOKIE_SECURE
+        value: true
+
+  - type: static
+    name: bookify-web
+    rootDir: frontend
+    autoDeploy: true
+    buildCommand: npm ci && npm run build
+    staticPublishPath: dist
+    envVars:
+      - key: VITE_API_URL
+        value: https://bookify-api.onrender.com/api
+    routes:
+      - type: rewrite
+        source: /*
+        destination: /index.html

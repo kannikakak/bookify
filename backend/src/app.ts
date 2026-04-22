@@ -18,9 +18,41 @@ const allowedOrigins = process.env.FRONTEND_URL
   ? process.env.FRONTEND_URL.split(",").map((origin) => origin.trim())
   : true;
 
+const isOriginAllowed = (requestOrigin: string, configuredOrigins: string[]) =>
+  configuredOrigins.some((origin) => {
+    if (!origin) {
+      return false;
+    }
+
+    if (origin === requestOrigin) {
+      return true;
+    }
+
+    if (origin.includes("*")) {
+      const escapedPattern = origin
+        .replace(/[.+?^${}()|[\]\\]/g, "\\$&")
+        .replace(/\*/g, ".*");
+      return new RegExp(`^${escapedPattern}$`).test(requestOrigin);
+    }
+
+    return false;
+  });
+
 app.use(
   cors({
-    origin: allowedOrigins,
+    origin: (origin, callback) => {
+      if (!origin || allowedOrigins === true) {
+        callback(null, true);
+        return;
+      }
+
+      if (isOriginAllowed(origin, allowedOrigins)) {
+        callback(null, true);
+        return;
+      }
+
+      callback(new Error("Origin not allowed by CORS"));
+    },
     credentials: true
   })
 );

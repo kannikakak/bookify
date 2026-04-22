@@ -167,3 +167,93 @@ You can now upload product images from the product form.
   "discount": 10
 }
 ```
+
+## Cloud deployment (Render + Vercel + Aiven MySQL)
+
+This project is now prepared for:
+
+- Backend API on Render
+- Frontend on Render Static or Vercel
+- MySQL on Aiven
+
+### 1) Aiven MySQL
+
+Create MySQL service in Aiven and collect:
+
+- host, port, database
+- username, password
+- CA certificate (for SSL)
+
+### 2) Deploy backend to Render
+
+You can use [render.yaml](/d:/Bookify%20System/render.yaml) blueprint or create service manually.
+
+Backend env (required):
+
+```env
+DB_HOST=...
+DB_PORT=...
+DB_USER=...
+DB_PASSWORD=...
+DB_NAME=...
+DB_SSL=true
+DB_SSL_REJECT_UNAUTHORIZED=true
+DB_SSL_CA=-----BEGIN CERTIFICATE-----\n...\n-----END CERTIFICATE-----
+FRONTEND_URL=https://your-render-frontend.onrender.com,https://your-vercel-app.vercel.app
+ADMIN_EMAIL=bookifystore@gmail.com
+ADMIN_PASSWORD=change-this-strong-password
+AUTH_SESSION_SECRET=change-this-long-random-secret
+AUTH_COOKIE_SAME_SITE=none
+AUTH_COOKIE_SECURE=true
+```
+
+After first deploy, run migration once:
+
+```bash
+cd backend
+npm run migrate
+```
+
+### 3) Deploy frontend
+
+#### Option A: Render Static
+
+Set:
+
+```env
+VITE_API_URL=https://your-backend.onrender.com/api
+```
+
+Build command:
+
+```bash
+npm ci && npm run build
+```
+
+Publish directory:
+
+```text
+dist
+```
+
+#### Option B: Vercel
+
+Use `frontend` as project root.
+
+- Build command: `npm run build`
+- Output directory: `dist`
+- Env: `VITE_API_URL=https://your-backend.onrender.com/api`
+
+SPA rewrites are included in [frontend/vercel.json](/d:/Bookify%20System/frontend/vercel.json).
+
+### 4) Cross-site auth cookies
+
+For Vercel + Render (different domains), use:
+
+- `AUTH_COOKIE_SAME_SITE=none`
+- `AUTH_COOKIE_SECURE=true`
+
+For local development:
+
+- `AUTH_COOKIE_SAME_SITE=lax`
+- `AUTH_COOKIE_SECURE=false`
