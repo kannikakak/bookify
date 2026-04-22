@@ -101,6 +101,16 @@ export const verifySessionToken = (token: string): SessionData | null => {
 };
 
 export const getSessionFromRequest = (request: Request) => {
+  const authorization = request.headers.authorization;
+  if (authorization?.startsWith("Bearer ")) {
+    const bearerToken = authorization.slice("Bearer ".length).trim();
+    const bearerSession = bearerToken ? verifySessionToken(bearerToken) : null;
+
+    if (bearerSession) {
+      return bearerSession;
+    }
+  }
+
   const cookies = parseCookies(request.headers.cookie);
   const token = cookies.get(SESSION_COOKIE_NAME);
 

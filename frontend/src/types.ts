@@ -140,4 +140,5 @@ export type ReportSummary = {
 
 export type AuthSession = {
   email: string;
+  token?: string;
 };

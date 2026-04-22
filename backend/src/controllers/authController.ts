@@ -28,7 +28,7 @@ export const login = (request: Request, response: Response) => {
 
   const token = createSessionToken(adminEmail);
   setSessionCookie(response, token);
-  response.json({ email: adminEmail });
+  response.json({ email: adminEmail, token });
 };
 
 export const logout = (_request: Request, response: Response) => {

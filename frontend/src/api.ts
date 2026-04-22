@@ -13,6 +13,34 @@ import {
 } from "./types";
 
 const API_URL = import.meta.env.VITE_API_URL ?? "http://localhost:5000/api";
+const AUTH_TOKEN_STORAGE_KEY = "bookify_auth_token";
+
+const getStoredAuthToken = () => {
+  if (typeof window === "undefined") {
+    return "";
+  }
+
+  return window.localStorage.getItem(AUTH_TOKEN_STORAGE_KEY) ?? "";
+};
+
+const setStoredAuthToken = (token: string) => {
+  window.localStorage.setItem(AUTH_TOKEN_STORAGE_KEY, token);
+};
+
+const clearStoredAuthToken = () => {
+  window.localStorage.removeItem(AUTH_TOKEN_STORAGE_KEY);
+};
+
+const getAuthHeaders = (): HeadersInit => {
+  const token = getStoredAuthToken();
+
+  return token ? { Authorization: `Bearer ${token}` } : {};
+};
+
+const getJsonHeaders = (): HeadersInit => ({
+  "Content-Type": "application/json",
+  ...getAuthHeaders()
+});
 
 const getErrorMessage = async (response: Response) => {
   try {
@@ -25,7 +53,8 @@ const getErrorMessage = async (response: Response) => {
 
 export const fetchBooks = async (): Promise<Book[]> => {
   const response = await fetch(`${API_URL}/books`, {
-    credentials: "include"
+    credentials: "include",
+    headers: getAuthHeaders()
   });
 
   if (!response.ok) {
@@ -44,6 +73,7 @@ export const createBook = async (
   const response = await fetch(`${API_URL}/books`, {
     method: "POST",
     credentials: "include",
+    headers: getAuthHeaders(),
     body: formData
   });
 
@@ -64,6 +94,7 @@ export const updateBook = async (
   const response = await fetch(`${API_URL}/books/${bookId}`, {
     method: "PUT",
     credentials: "include",
+    headers: getAuthHeaders(),
     body: formData
   });
 
@@ -77,7 +108,8 @@ export const updateBook = async (
 export const deleteBook = async (bookId: number): Promise<void> => {
   const response = await fetch(`${API_URL}/books/${bookId}`, {
     method: "DELETE",
-    credentials: "include"
+    credentials: "include",
+    headers: getAuthHeaders()
   });
 
   if (!response.ok) {
@@ -87,7 +119,8 @@ export const deleteBook = async (bookId: number): Promise<void> => {
 
 export const fetchStockRecords = async (): Promise<StockRecord[]> => {
   const response = await fetch(`${API_URL}/books/stock-records`, {
-    credentials: "include"
+    credentials: "include",
+    headers: getAuthHeaders()
   });
 
   if (!response.ok) {
@@ -104,9 +137,7 @@ export const addBookStock = async (
   const response = await fetch(`${API_URL}/books/${bookId}/stock`, {
     method: "POST",
     credentials: "include",
-    headers: {
-      "Content-Type": "application/json"
-    },
+    headers: getJsonHeaders(),
     body: JSON.stringify(payload)
   });
 
@@ -140,7 +171,8 @@ const toBookFormData = (payload: CreateBookPayload, images: File[]) => {
 
 export const fetchExpenses = async (): Promise<Expense[]> => {
   const response = await fetch(`${API_URL}/expenses`, {
-    credentials: "include"
+    credentials: "include",
+    headers: getAuthHeaders()
   });
 
   if (!response.ok) {
@@ -154,9 +186,7 @@ export const createExpense = async (payload: CreateExpensePayload): Promise<Expe
   const response = await fetch(`${API_URL}/expenses`, {
     method: "POST",
     credentials: "include",
-    headers: {
-      "Content-Type": "application/json"
-    },
+    headers: getJsonHeaders(),
     body: JSON.stringify(payload)
   });
 
@@ -170,7 +200,8 @@ export const createExpense = async (payload: CreateExpensePayload): Promise<Expe
 export const deleteExpense = async (expenseId: number): Promise<void> => {
   const response = await fetch(`${API_URL}/expenses/${expenseId}`, {
     method: "DELETE",
-    credentials: "include"
+    credentials: "include",
+    headers: getAuthHeaders()
   });
 
   if (!response.ok) {
@@ -180,7 +211,8 @@ export const deleteExpense = async (expenseId: number): Promise<void> => {
 
 export const fetchOrders = async (): Promise<Order[]> => {
   const response = await fetch(`${API_URL}/orders`, {
-    credentials: "include"
+    credentials: "include",
+    headers: getAuthHeaders()
   });
 
   if (!response.ok) {
@@ -194,9 +226,7 @@ export const createOrder = async (payload: CreateOrderPayload): Promise<Order> =
   const response = await fetch(`${API_URL}/orders`, {
     method: "POST",
     credentials: "include",
-    headers: {
-      "Content-Type": "application/json"
-    },
+    headers: getJsonHeaders(),
     body: JSON.stringify(payload)
   });
 
@@ -211,9 +241,7 @@ export const createInvoice = async (payload: CreateInvoicePayload): Promise<Orde
   const response = await fetch(`${API_URL}/orders/invoices`, {
     method: "POST",
     credentials: "include",
-    headers: {
-      "Content-Type": "application/json"
-    },
+    headers: getJsonHeaders(),
     body: JSON.stringify(payload)
   });
 
@@ -227,7 +255,8 @@ export const createInvoice = async (payload: CreateInvoicePayload): Promise<Orde
 export const deleteInvoice = async (invoiceCode: string): Promise<void> => {
   const response = await fetch(`${API_URL}/orders/invoices/${encodeURIComponent(invoiceCode)}`, {
     method: "DELETE",
-    credentials: "include"
+    credentials: "include",
+    headers: getAuthHeaders()
   });
 
   if (!response.ok) {
@@ -237,7 +266,8 @@ export const deleteInvoice = async (invoiceCode: string): Promise<void> => {
 
 export const fetchReportSummary = async (): Promise<ReportSummary> => {
   const response = await fetch(`${API_URL}/reports/summary`, {
-    credentials: "include"
+    credentials: "include",
+    headers: getAuthHeaders()
   });
 
   if (!response.ok) {
@@ -253,9 +283,7 @@ export const login = async (
   const response = await fetch(`${API_URL}/auth/login`, {
     method: "POST",
     credentials: "include",
-    headers: {
-      "Content-Type": "application/json"
-    },
+    headers: getJsonHeaders(),
     body: JSON.stringify(payload)
   });
 
@@ -263,26 +291,41 @@ export const login = async (
     throw new Error(await getErrorMessage(response));
   }
 
-  return response.json();
+  const session = await response.json();
+  if (session.token) {
+    setStoredAuthToken(session.token);
+  }
+
+  return session;
 };
 
 export const logout = async (): Promise<void> => {
-  const response = await fetch(`${API_URL}/auth/logout`, {
-    method: "POST",
-    credentials: "include"
-  });
+  try {
+    const response = await fetch(`${API_URL}/auth/logout`, {
+      method: "POST",
+      credentials: "include",
+      headers: getAuthHeaders()
+    });
 
-  if (!response.ok) {
-    throw new Error(await getErrorMessage(response));
+    if (!response.ok) {
+      throw new Error(await getErrorMessage(response));
+    }
+  } finally {
+    clearStoredAuthToken();
   }
 };
 
 export const fetchSession = async (): Promise<AuthSession> => {
   const response = await fetch(`${API_URL}/auth/me`, {
-    credentials: "include"
+    credentials: "include",
+    headers: getAuthHeaders()
   });
 
   if (!response.ok) {
+    if (response.status === 401) {
+      clearStoredAuthToken();
+    }
+
     throw new Error(await getErrorMessage(response));
   }
 
