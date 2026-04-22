@@ -1,6 +1,7 @@
 import {
   Book,
   AddStockPayload,
+  AuthSession,
   CreateBookPayload,
   CreateExpensePayload,
   CreateInvoicePayload,
@@ -23,7 +24,9 @@ const getErrorMessage = async (response: Response) => {
 };
 
 export const fetchBooks = async (): Promise<Book[]> => {
-  const response = await fetch(`${API_URL}/books`);
+  const response = await fetch(`${API_URL}/books`, {
+    credentials: "include"
+  });
 
   if (!response.ok) {
     throw new Error(await getErrorMessage(response));
@@ -40,6 +43,7 @@ export const createBook = async (
 
   const response = await fetch(`${API_URL}/books`, {
     method: "POST",
+    credentials: "include",
     body: formData
   });
 
@@ -59,6 +63,7 @@ export const updateBook = async (
 
   const response = await fetch(`${API_URL}/books/${bookId}`, {
     method: "PUT",
+    credentials: "include",
     body: formData
   });
 
@@ -69,8 +74,21 @@ export const updateBook = async (
   return response.json();
 };
 
+export const deleteBook = async (bookId: number): Promise<void> => {
+  const response = await fetch(`${API_URL}/books/${bookId}`, {
+    method: "DELETE",
+    credentials: "include"
+  });
+
+  if (!response.ok) {
+    throw new Error(await getErrorMessage(response));
+  }
+};
+
 export const fetchStockRecords = async (): Promise<StockRecord[]> => {
-  const response = await fetch(`${API_URL}/books/stock-records`);
+  const response = await fetch(`${API_URL}/books/stock-records`, {
+    credentials: "include"
+  });
 
   if (!response.ok) {
     throw new Error(await getErrorMessage(response));
@@ -85,6 +103,7 @@ export const addBookStock = async (
 ): Promise<StockRecord> => {
   const response = await fetch(`${API_URL}/books/${bookId}/stock`, {
     method: "POST",
+    credentials: "include",
     headers: {
       "Content-Type": "application/json"
     },
@@ -120,7 +139,9 @@ const toBookFormData = (payload: CreateBookPayload, images: File[]) => {
 };
 
 export const fetchExpenses = async (): Promise<Expense[]> => {
-  const response = await fetch(`${API_URL}/expenses`);
+  const response = await fetch(`${API_URL}/expenses`, {
+    credentials: "include"
+  });
 
   if (!response.ok) {
     throw new Error(await getErrorMessage(response));
@@ -132,6 +153,7 @@ export const fetchExpenses = async (): Promise<Expense[]> => {
 export const createExpense = async (payload: CreateExpensePayload): Promise<Expense> => {
   const response = await fetch(`${API_URL}/expenses`, {
     method: "POST",
+    credentials: "include",
     headers: {
       "Content-Type": "application/json"
     },
@@ -145,8 +167,21 @@ export const createExpense = async (payload: CreateExpensePayload): Promise<Expe
   return response.json();
 };
 
+export const deleteExpense = async (expenseId: number): Promise<void> => {
+  const response = await fetch(`${API_URL}/expenses/${expenseId}`, {
+    method: "DELETE",
+    credentials: "include"
+  });
+
+  if (!response.ok) {
+    throw new Error(await getErrorMessage(response));
+  }
+};
+
 export const fetchOrders = async (): Promise<Order[]> => {
-  const response = await fetch(`${API_URL}/orders`);
+  const response = await fetch(`${API_URL}/orders`, {
+    credentials: "include"
+  });
 
   if (!response.ok) {
     throw new Error(await getErrorMessage(response));
@@ -158,6 +193,7 @@ export const fetchOrders = async (): Promise<Order[]> => {
 export const createOrder = async (payload: CreateOrderPayload): Promise<Order> => {
   const response = await fetch(`${API_URL}/orders`, {
     method: "POST",
+    credentials: "include",
     headers: {
       "Content-Type": "application/json"
     },
@@ -174,6 +210,7 @@ export const createOrder = async (payload: CreateOrderPayload): Promise<Order> =
 export const createInvoice = async (payload: CreateInvoicePayload): Promise<Order[]> => {
   const response = await fetch(`${API_URL}/orders/invoices`, {
     method: "POST",
+    credentials: "include",
     headers: {
       "Content-Type": "application/json"
     },
@@ -189,7 +226,8 @@ export const createInvoice = async (payload: CreateInvoicePayload): Promise<Orde
 
 export const deleteInvoice = async (invoiceCode: string): Promise<void> => {
   const response = await fetch(`${API_URL}/orders/invoices/${encodeURIComponent(invoiceCode)}`, {
-    method: "DELETE"
+    method: "DELETE",
+    credentials: "include"
   });
 
   if (!response.ok) {
@@ -198,7 +236,51 @@ export const deleteInvoice = async (invoiceCode: string): Promise<void> => {
 };
 
 export const fetchReportSummary = async (): Promise<ReportSummary> => {
-  const response = await fetch(`${API_URL}/reports/summary`);
+  const response = await fetch(`${API_URL}/reports/summary`, {
+    credentials: "include"
+  });
+
+  if (!response.ok) {
+    throw new Error(await getErrorMessage(response));
+  }
+
+  return response.json();
+};
+
+export const login = async (
+  payload: { email: string; password: string }
+): Promise<AuthSession> => {
+  const response = await fetch(`${API_URL}/auth/login`, {
+    method: "POST",
+    credentials: "include",
+    headers: {
+      "Content-Type": "application/json"
+    },
+    body: JSON.stringify(payload)
+  });
+
+  if (!response.ok) {
+    throw new Error(await getErrorMessage(response));
+  }
+
+  return response.json();
+};
+
+export const logout = async (): Promise<void> => {
+  const response = await fetch(`${API_URL}/auth/logout`, {
+    method: "POST",
+    credentials: "include"
+  });
+
+  if (!response.ok) {
+    throw new Error(await getErrorMessage(response));
+  }
+};
+
+export const fetchSession = async (): Promise<AuthSession> => {
+  const response = await fetch(`${API_URL}/auth/me`, {
+    credentials: "include"
+  });
 
   if (!response.ok) {
     throw new Error(await getErrorMessage(response));

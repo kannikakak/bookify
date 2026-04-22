@@ -70,6 +70,9 @@ DB_USER=root
 DB_PASSWORD=
 DB_NAME=bookify_db
 FRONTEND_URL=http://localhost:5173
+ADMIN_EMAIL=bookifystore@gmail.com
+ADMIN_PASSWORD=bookify123
+AUTH_SESSION_SECRET=change-this-bookify-session-secret
 ```
 
 ## 4. Install dependencies
@@ -117,6 +120,9 @@ npm.cmd run dev
 ## API Endpoints
 
 - `GET /api/health`
+- `POST /api/auth/login`
+- `POST /api/auth/logout`
+- `GET /api/auth/me`
 - `GET /api/books`
 - `POST /api/books`
 - `GET /api/orders`

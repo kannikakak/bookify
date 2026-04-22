@@ -14,6 +14,7 @@ type BookRow = RowDataPacket & {
   image_urls: string;
   created_at: string | Date;
   updated_at: string | Date;
+  deleted_at?: string | Date | null;
 };
 
 type StockAdjustmentRow = RowDataPacket & {
@@ -206,6 +207,7 @@ export const listBooks = async (req: Request, res: Response) => {
       created_at,
       updated_at
     FROM books
+    WHERE deleted_at IS NULL
     ORDER BY created_at DESC`
   );
 
@@ -276,7 +278,7 @@ export const createBook = async (req: Request, res: Response) => {
       created_at,
       updated_at
     FROM books
-    WHERE id = ?`,
+    WHERE id = ? AND deleted_at IS NULL`,
     [result.insertId]
   );
 
@@ -310,7 +312,7 @@ export const updateBook = async (req: Request, res: Response) => {
       created_at,
       updated_at
     FROM books
-    WHERE id = ?`,
+    WHERE id = ? AND deleted_at IS NULL`,
     [bookId]
   );
 
@@ -338,7 +340,7 @@ export const updateBook = async (req: Request, res: Response) => {
       stock = ?,
       low_stock_threshold = ?,
       image_urls = ?
-    WHERE id = ?`,
+    WHERE id = ? AND deleted_at IS NULL`,
     [
       title,
       category,
@@ -406,7 +408,7 @@ export const addBookStock = async (req: Request, res: Response) => {
         created_at,
         updated_at
       FROM books
-      WHERE id = ?
+      WHERE id = ? AND deleted_at IS NULL
       FOR UPDATE`,
       [bookId]
     );
@@ -458,4 +460,23 @@ export const addBookStock = async (req: Request, res: Response) => {
   } finally {
     connection.release();
   }
+};
+
+export const deleteBook = async (req: Request, res: Response) => {
+  const bookId = Number(req.params.id);
+
+  if (!Number.isInteger(bookId) || bookId <= 0) {
+    return res.status(400).json({ message: "Book id is invalid." });
+  }
+
+  const [result] = await pool.execute<ResultSetHeader>(
+    "UPDATE books SET deleted_at = CURRENT_TIMESTAMP WHERE id = ? AND deleted_at IS NULL",
+    [bookId]
+  );
+
+  if (result.affectedRows === 0) {
+    return res.status(404).json({ message: "Book not found." });
+  }
+
+  res.status(204).send();
 };

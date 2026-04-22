@@ -1,5 +1,6 @@
 import { Book, ReportSummary } from "../types";
 import type { Section, OrderPeriod } from "../types/forms";
+import { toDateInputValue } from "../utils";
 
 export const MENU_ITEMS: Array<{ key: Section; label: string }> = [
   { key: "dashboard", label: "Dashboard" },
@@ -68,6 +69,7 @@ export const EMPTY_REPORT: ReportSummary = {
   orders: {
     totalOrders: 0,
     soldUnits: 0,
+    totalCost: 0,
     grossSales: 0,
     totalDiscount: 0,
     netSales: 0
@@ -77,6 +79,7 @@ export const EMPTY_REPORT: ReportSummary = {
     projectedMargin: 0,
     projectedNetProfit: 0,
     actualNetSales: 0,
+    actualGrossProfit: 0,
     actualNetAfterExpense: 0
   }
 };
@@ -96,12 +99,14 @@ export const INITIAL_EXPENSE_FORM = {
   category: "Boost Page" as const,
   amount: "",
   note: "",
-  spentOn: new Date().toISOString().slice(0, 10)
+  spentOn: toDateInputValue(new Date())
 };
 
 export const INITIAL_ORDER_FORM = {
   bookId: "",
   customerName: "",
+  customerPhone: "",
+  customerAddress: "",
   quantity: "1",
   discount: "0"
 };

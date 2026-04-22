@@ -8,6 +8,8 @@ type OrderRow = RowDataPacket & {
   book_id: number;
   book_title: string;
   customer_name: string;
+  customer_phone: string;
+  customer_address: string;
   quantity: number;
   paid_quantity: number;
   free_quantity: number;
@@ -30,12 +32,16 @@ type BookStockRow = RowDataPacket & {
 type CreateOrderBody = {
   bookId?: number | string;
   customerName?: string;
+  customerPhone?: string;
+  customerAddress?: string;
   quantity?: number | string;
   discount?: number | string;
 };
 
 type CreateInvoiceBody = {
   customerName?: string;
+  customerPhone?: string;
+  customerAddress?: string;
   deliveryFee?: number | string;
   items?: Array<{
     bookId?: number | string;
@@ -62,6 +68,8 @@ const mapOrder = (row: OrderRow) => ({
   bookId: row.book_id,
   bookTitle: row.book_title,
   customerName: row.customer_name,
+  customerPhone: row.customer_phone,
+  customerAddress: row.customer_address,
   quantity: row.quantity,
   paidQuantity: row.paid_quantity,
   freeQuantity: row.free_quantity,
@@ -76,6 +84,8 @@ const mapOrder = (row: OrderRow) => ({
 const validateBody = (body: CreateOrderBody) => {
   const bookId = toNumber(body.bookId);
   const customerName = body.customerName?.trim() || "Walk-in customer";
+  const customerPhone = body.customerPhone?.trim() || "";
+  const customerAddress = body.customerAddress?.trim() || "";
   const quantity = toNumber(body.quantity);
   const discount = body.discount === undefined || body.discount === "" ? 0 : toNumber(body.discount);
 
@@ -95,6 +105,8 @@ const validateBody = (body: CreateOrderBody) => {
     value: {
       bookId,
       customerName,
+      customerPhone,
+      customerAddress,
       quantity,
       discount
     }
@@ -103,6 +115,8 @@ const validateBody = (body: CreateOrderBody) => {
 
 const validateInvoiceBody = (body: CreateInvoiceBody) => {
   const customerName = body.customerName?.trim() || "Walk-in customer";
+  const customerPhone = body.customerPhone?.trim() || "";
+  const customerAddress = body.customerAddress?.trim() || "";
   const deliveryFee = body.deliveryFee === undefined || body.deliveryFee === "" ? 0 : toNumber(body.deliveryFee);
   const items = Array.isArray(body.items) ? body.items : [];
 
@@ -134,7 +148,7 @@ const validateInvoiceBody = (body: CreateInvoiceBody) => {
     }
   }
 
-  return { value: { customerName, deliveryFee, items: values } };
+  return { value: { customerName, customerPhone, customerAddress, deliveryFee, items: values } };
 };
 
 export const listOrders = async (_req: Request, res: Response) => {
@@ -145,6 +159,8 @@ export const listOrders = async (_req: Request, res: Response) => {
       sales_orders.book_id,
       books.title AS book_title,
       sales_orders.customer_name,
+      sales_orders.customer_phone,
+      sales_orders.customer_address,
       sales_orders.quantity,
       sales_orders.paid_quantity,
       sales_orders.free_quantity,
@@ -169,7 +185,7 @@ export const createOrder = async (req: Request, res: Response) => {
     return res.status(400).json({ message: validation.message });
   }
 
-  const { bookId, customerName, quantity, discount } = validation.value;
+  const { bookId, customerName, customerPhone, customerAddress, quantity, discount } = validation.value;
   const connection = await pool.getConnection();
 
   try {
@@ -210,9 +226,23 @@ export const createOrder = async (req: Request, res: Response) => {
 
     const [result] = await connection.execute<ResultSetHeader>(
       `INSERT INTO sales_orders
-        (invoice_code, book_id, customer_name, quantity, paid_quantity, free_quantity, unit_buy_price, unit_sell_price, discount, total_amount, delivery_fee)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-      [invoiceCode, bookId, customerName, quantity, paidQuantity, freeQuantity, unitBuyPrice, unitSellPrice, discount, totalAmount, 0]
+        (invoice_code, book_id, customer_name, customer_phone, customer_address, quantity, paid_quantity, free_quantity, unit_buy_price, unit_sell_price, discount, total_amount, delivery_fee)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [
+        invoiceCode,
+        bookId,
+        customerName,
+        customerPhone,
+        customerAddress,
+        quantity,
+        paidQuantity,
+        freeQuantity,
+        unitBuyPrice,
+        unitSellPrice,
+        discount,
+        totalAmount,
+        0
+      ]
     );
 
     await connection.execute("UPDATE books SET stock = stock - ? WHERE id = ?", [quantity, bookId]);
@@ -225,6 +255,8 @@ export const createOrder = async (req: Request, res: Response) => {
         sales_orders.book_id,
         books.title AS book_title,
         sales_orders.customer_name,
+        sales_orders.customer_phone,
+        sales_orders.customer_address,
         sales_orders.quantity,
         sales_orders.paid_quantity,
         sales_orders.free_quantity,
@@ -256,7 +288,7 @@ export const createInvoice = async (req: Request, res: Response) => {
     return res.status(400).json({ message: validation.message });
   }
 
-  const { customerName, deliveryFee, items } = validation.value;
+  const { customerName, customerPhone, customerAddress, deliveryFee, items } = validation.value;
   const invoiceCode = `INV-${Date.now()}`;
   const connection = await pool.getConnection();
   const insertedIds: number[] = [];
@@ -296,12 +328,14 @@ export const createInvoice = async (req: Request, res: Response) => {
       const totalAmount = subtotal - item.discount;
       const [result] = await connection.execute<ResultSetHeader>(
         `INSERT INTO sales_orders
-          (invoice_code, book_id, customer_name, quantity, paid_quantity, free_quantity, unit_buy_price, unit_sell_price, discount, total_amount, delivery_fee)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          (invoice_code, book_id, customer_name, customer_phone, customer_address, quantity, paid_quantity, free_quantity, unit_buy_price, unit_sell_price, discount, total_amount, delivery_fee)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         [
           invoiceCode,
           item.bookId,
           customerName,
+          customerPhone,
+          customerAddress,
           item.quantity,
           item.quantity,
           0,
@@ -326,6 +360,8 @@ export const createInvoice = async (req: Request, res: Response) => {
         sales_orders.book_id,
         books.title AS book_title,
         sales_orders.customer_name,
+        sales_orders.customer_phone,
+        sales_orders.customer_address,
         sales_orders.quantity,
         sales_orders.paid_quantity,
         sales_orders.free_quantity,

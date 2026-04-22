@@ -2,6 +2,7 @@ import { Router } from "express";
 import {
   addBookStock,
   createBook,
+  deleteBook,
   listBooks,
   listStockAdjustments,
   updateBook
@@ -16,5 +17,6 @@ router.get("/stock-records", asyncHandler(listStockAdjustments));
 router.post("/", upload.array("images", 5), asyncHandler(createBook));
 router.post("/:id/stock", asyncHandler(addBookStock));
 router.put("/:id", upload.array("images", 5), asyncHandler(updateBook));
+router.delete("/:id", asyncHandler(deleteBook));
 
 export default router;

@@ -24,6 +24,7 @@ type ExpenseSummaryRow = RowDataPacket & {
 type OrderSummaryRow = RowDataPacket & {
   totalOrders: number | null;
   soldUnits: number | null;
+  totalCost: number | string | null;
   grossSales: number | string | null;
   totalDiscount: number | string | null;
   netSales: number | string | null;
@@ -40,7 +41,8 @@ export const getSummaryReport = async (_req: Request, res: Response) => {
       COALESCE(SUM(CASE WHEN stock > low_stock_threshold THEN 1 ELSE 0 END), 0) AS inStock,
       COALESCE(SUM(CASE WHEN stock > 0 AND stock <= low_stock_threshold THEN 1 ELSE 0 END), 0) AS lowStock,
       COALESCE(SUM(CASE WHEN stock <= 0 THEN 1 ELSE 0 END), 0) AS outOfStock
-    FROM books`
+    FROM books
+    WHERE deleted_at IS NULL`
   );
 
   const [expenseRows] = await pool.query<ExpenseSummaryRow[]>(
@@ -57,9 +59,10 @@ export const getSummaryReport = async (_req: Request, res: Response) => {
     `SELECT
       COUNT(DISTINCT invoice_code) AS totalOrders,
       COALESCE(SUM(quantity), 0) AS soldUnits,
+      COALESCE(SUM(unit_buy_price * quantity), 0) AS totalCost,
       COALESCE(SUM(unit_sell_price * quantity), 0) AS grossSales,
       COALESCE(SUM(discount), 0) AS totalDiscount,
-      COALESCE(SUM(total_amount + delivery_fee), 0) AS netSales
+      COALESCE(SUM(total_amount), 0) AS netSales
     FROM sales_orders`
   );
 
@@ -70,7 +73,9 @@ export const getSummaryReport = async (_req: Request, res: Response) => {
   const totalSalesValue = Number(inventory.totalSalesValue ?? 0);
   const totalPotentialProfit = Number(inventory.totalPotentialProfit ?? 0);
   const totalExpense = Number(expense.totalExpense ?? 0);
+  const totalCost = Number(orders.totalCost ?? 0);
   const netSales = Number(orders.netSales ?? 0);
+  const actualGrossProfit = netSales - totalCost;
 
   res.json({
     inventory: {
@@ -93,6 +98,7 @@ export const getSummaryReport = async (_req: Request, res: Response) => {
     orders: {
       totalOrders: Number(orders.totalOrders ?? 0),
       soldUnits: Number(orders.soldUnits ?? 0),
+      totalCost,
       grossSales: Number(orders.grossSales ?? 0),
       totalDiscount: Number(orders.totalDiscount ?? 0),
       netSales
@@ -102,7 +108,8 @@ export const getSummaryReport = async (_req: Request, res: Response) => {
       projectedMargin: totalPotentialProfit,
       projectedNetProfit: totalPotentialProfit - totalExpense,
       actualNetSales: netSales,
-      actualNetAfterExpense: netSales - totalExpense
+      actualGrossProfit,
+      actualNetAfterExpense: actualGrossProfit - totalExpense
     }
   });
 };

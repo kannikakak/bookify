@@ -3,12 +3,17 @@ import {
   addBookStock,
   createBook,
   createExpense,
+  fetchSession,
+  deleteBook,
+  deleteExpense,
   createInvoice,
   deleteInvoice,
   fetchBooks,
   fetchExpenses,
   fetchOrders,
   fetchReportSummary,
+  login,
+  logout,
   updateBook
 } from "./api";
 import {
@@ -25,6 +30,7 @@ import "./styles.css";
 
 type Section = "dashboard" | "products" | "orders" | "expenses" | "reports";
 type OrderPeriod = "daily" | "weekly" | "monthly" | "all";
+type OrdersViewMode = "list" | "create";
 
 type BookFormState = {
   title: string;
@@ -47,6 +53,8 @@ type ExpenseFormState = {
 type OrderFormState = {
   bookId: string;
   customerName: string;
+  customerPhone: string;
+  customerAddress: string;
   quantity: string;
   discount: string;
   deliveryFee: string;
@@ -61,6 +69,8 @@ type InvoiceLineFormState = {
 type InvoiceGroup = {
   invoiceCode: string;
   customerName: string;
+  customerPhone: string;
+  customerAddress: string;
   orderedAt: string;
   items: Order[];
   deliveryFee: number;
@@ -81,6 +91,11 @@ type InvoiceDraftLine = {
   total: number;
 };
 
+type LoginFormState = {
+  email: string;
+  password: string;
+};
+
 const initialBookForm: BookFormState = {
   title: "",
   category: "",
@@ -92,19 +107,33 @@ const initialBookForm: BookFormState = {
   imageUrlsText: ""
 };
 
+const toDateInputValue = (date: Date) => {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+};
+
 const initialExpenseForm: ExpenseFormState = {
   category: "Boost Page",
   amount: "",
   note: "",
-  spentOn: new Date().toISOString().slice(0, 10)
+  spentOn: toDateInputValue(new Date())
 };
 
 const initialOrderForm: OrderFormState = {
   bookId: "",
   customerName: "",
+  customerPhone: "",
+  customerAddress: "",
   quantity: "1",
   discount: "0",
-  deliveryFee: "0"
+  deliveryFee: "$0.00"
+};
+
+const initialLoginForm: LoginFormState = {
+  email: "bookifystore@gmail.com",
+  password: ""
 };
 
 const currency = new Intl.NumberFormat("en-US", {
@@ -129,13 +158,29 @@ const getWeekStart = (date: Date) => {
   return weekStart;
 };
 
-const isOrderInPeriod = (orderedAt: string, period: OrderPeriod) => {
+const parseCalendarDate = (value: string) => {
+  const dateOnlyMatch = /^(\d{4})-(\d{2})-(\d{2})$/.exec(value);
+
+  if (dateOnlyMatch) {
+    return new Date(
+      Number(dateOnlyMatch[1]),
+      Number(dateOnlyMatch[2]) - 1,
+      Number(dateOnlyMatch[3])
+    );
+  }
+
+  return new Date(value);
+};
+
+const formatCalendarDate = (value: string) => parseCalendarDate(value).toLocaleDateString();
+
+const isOrderInPeriod = (orderedAt: string, period: OrderPeriod, recordDate?: string) => {
   if (period === "all") {
     return true;
   }
 
-  const orderDate = new Date(orderedAt);
-  const now = new Date();
+  const orderDate = parseCalendarDate(orderedAt);
+  const now = recordDate ? parseCalendarDate(recordDate) : new Date();
 
   if (period === "daily") {
     return orderDate.toDateString() === now.toDateString();
@@ -159,7 +204,55 @@ const escapeHtml = (value: string) =>
     .replace(/"/g, "&quot;")
     .replace(/'/g, "&#039;");
 
-const parseCurrencyInput = (value: string) => Number(value.replace(/\$/g, "").trim());
+const parseCurrencyInput = (value: string) => Number(value.replace(/[$,\s]/g, "").trim());
+const formatCurrencyInput = (value: string) => {
+  const parsedValue = parseCurrencyInput(value);
+  return currency.format(Number.isNaN(parsedValue) ? 0 : parsedValue);
+};
+const isFreeDeliveryInput = (value: string) => {
+  const normalized = value.trim().toLowerCase();
+  return normalized === "free" || normalized === "ឥតគិតថ្លៃ";
+};
+
+const parseDeliveryFeeInput = (value: string) => {
+  if (isFreeDeliveryInput(value)) {
+    return 0;
+  }
+
+  const parsedValue = parseCurrencyInput(value);
+  return Number.isNaN(parsedValue) ? 0 : Math.max(parsedValue, 0);
+};
+
+const formatDeliveryFeeInput = (value: string) => {
+  if (isFreeDeliveryInput(value)) {
+    return "FREE";
+  }
+
+  return formatCurrencyInput(value);
+};
+
+const getPeriodRecordDateLabel = (period: OrderPeriod, recordDate?: string) => {
+  const now = recordDate ? parseCalendarDate(recordDate) : new Date();
+
+  if (period === "daily") {
+    return now.toLocaleDateString();
+  }
+
+  if (period === "weekly") {
+    const weekStart = getWeekStart(now);
+    const weekEnd = new Date(weekStart);
+    weekEnd.setDate(weekEnd.getDate() + 6);
+    return `${weekStart.toLocaleDateString()} - ${weekEnd.toLocaleDateString()}`;
+  }
+
+  if (period === "monthly") {
+    const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
+    const monthEnd = new Date(now.getFullYear(), now.getMonth() + 1, 0);
+    return `${monthStart.toLocaleDateString()} - ${monthEnd.toLocaleDateString()}`;
+  }
+
+  return "ទិន្នន័យទាំងអស់";
+};
 
 const escapeCsv = (value: string | number) => {
   const text = String(value);
@@ -214,6 +307,7 @@ const emptyReport: ReportSummary = {
   orders: {
     totalOrders: 0,
     soldUnits: 0,
+    totalCost: 0,
     grossSales: 0,
     totalDiscount: 0,
     netSales: 0
@@ -223,6 +317,7 @@ const emptyReport: ReportSummary = {
     projectedMargin: 0,
     projectedNetProfit: 0,
     actualNetSales: 0,
+    actualGrossProfit: 0,
     actualNetAfterExpense: 0
   }
 };
@@ -238,9 +333,20 @@ function App() {
   const [bookImageInputKey, setBookImageInputKey] = useState(0);
   const [editingBookId, setEditingBookId] = useState<number | null>(null);
   const [showProductForm, setShowProductForm] = useState(false);
+  const [productQuery, setProductQuery] = useState("");
+  const [invoiceQuery, setInvoiceQuery] = useState("");
+  const [ordersViewMode, setOrdersViewMode] = useState<OrdersViewMode>("list");
+  const [loginForm, setLoginForm] = useState<LoginFormState>(initialLoginForm);
+  const [authChecking, setAuthChecking] = useState(true);
+  const [isAuthenticated, setIsAuthenticated] = useState(false);
+  const [loginSubmitting, setLoginSubmitting] = useState(false);
+  const [loginError, setLoginError] = useState<string | null>(null);
+  const [adminEmail, setAdminEmail] = useState(initialLoginForm.email);
   const [orderForm, setOrderForm] = useState<OrderFormState>(initialOrderForm);
   const [invoiceItems, setInvoiceItems] = useState<InvoiceLineFormState[]>([]);
+  const [bookPickerOpen, setBookPickerOpen] = useState(false);
   const [orderPeriod, setOrderPeriod] = useState<OrderPeriod>("daily");
+  const [periodRecordDate, setPeriodRecordDate] = useState(toDateInputValue(new Date()));
   const [expenseForm, setExpenseForm] = useState<ExpenseFormState>(initialExpenseForm);
   const [loading, setLoading] = useState(true);
   const [bookSaving, setBookSaving] = useState(false);
@@ -274,7 +380,21 @@ function App() {
   };
 
   useEffect(() => {
-    void loadAll();
+    const initializeSession = async () => {
+      try {
+        const session = await fetchSession();
+        setIsAuthenticated(true);
+        setAdminEmail(session.email);
+        setLoginForm((current) => ({ ...current, email: session.email }));
+        await loadAll();
+      } catch {
+        setIsAuthenticated(false);
+      } finally {
+        setAuthChecking(false);
+      }
+    };
+
+    void initializeSession();
   }, []);
 
   const editingBook = useMemo(
@@ -282,14 +402,35 @@ function App() {
     [books, editingBookId]
   );
 
+  const filteredBooks = useMemo(() => {
+    const query = productQuery.trim().toLowerCase();
+
+    if (!query) {
+      return books;
+    }
+
+    return books.filter((book) =>
+      [book.title, book.category, String(book.sellPrice), String(book.buyPrice), String(book.stock)]
+        .some((value) => value.toLowerCase().includes(query))
+    );
+  }, [books, productQuery]);
+
   const selectedOrderBook = useMemo(
     () => books.find((book) => book.id === Number(orderForm.bookId)) ?? null,
     [books, orderForm.bookId]
   );
+  const selectedOrderBookLabel = selectedOrderBook
+    ? `${selectedOrderBook.title} - ${currency.format(selectedOrderBook.sellPrice)} - ស្តុក ${selectedOrderBook.stock}`
+    : "ជ្រើសរើសសៀវភៅ";
 
   const filteredOrders = useMemo(
-    () => orders.filter((order) => isOrderInPeriod(order.orderedAt, orderPeriod)),
-    [orders, orderPeriod]
+    () => orders.filter((order) => isOrderInPeriod(order.orderedAt, orderPeriod, periodRecordDate)),
+    [orders, orderPeriod, periodRecordDate]
+  );
+
+  const filteredExpenses = useMemo(
+    () => expenses.filter((expense) => isOrderInPeriod(expense.spentOn, orderPeriod, periodRecordDate)),
+    [expenses, orderPeriod, periodRecordDate]
   );
 
   const filteredInvoices = useMemo<InvoiceGroup[]>(() => {
@@ -313,6 +454,8 @@ function App() {
         return {
           invoiceCode,
           customerName: first.customerName,
+          customerPhone: first.customerPhone,
+          customerAddress: first.customerAddress,
           orderedAt: first.orderedAt,
           items,
           deliveryFee,
@@ -325,6 +468,27 @@ function App() {
       })
       .sort((left, right) => new Date(right.orderedAt).getTime() - new Date(left.orderedAt).getTime());
   }, [filteredOrders]);
+  const filteredInvoiceQuery = invoiceQuery.trim().toLowerCase();
+  const invoicePhoneQuery = filteredInvoiceQuery.replace(/\D/g, "");
+  const searchedInvoices = useMemo(
+    () =>
+      filteredInvoices.filter((invoice) => {
+        if (!filteredInvoiceQuery) {
+          return true;
+        }
+
+        const customerName = invoice.customerName.toLowerCase();
+        const customerPhone = invoice.customerPhone.toLowerCase();
+        const customerPhoneDigits = invoice.customerPhone.replace(/\D/g, "");
+
+        return (
+          customerName.includes(filteredInvoiceQuery) ||
+          customerPhone.includes(filteredInvoiceQuery) ||
+          (invoicePhoneQuery.length > 0 && customerPhoneDigits.includes(invoicePhoneQuery))
+        );
+      }),
+    [filteredInvoices, filteredInvoiceQuery, invoicePhoneQuery]
+  );
 
   const orderRecordSummary = useMemo(
     () =>
@@ -354,9 +518,36 @@ function App() {
     [filteredInvoices]
   );
 
+  const expensePeriodSummary = useMemo(
+    () =>
+      filteredExpenses.reduce(
+        (summary, expense) => ({
+          totalExpense: summary.totalExpense + expense.amount,
+          boostPage: summary.boostPage + (expense.category === "Boost Page" ? expense.amount : 0),
+          delivery: summary.delivery + (expense.category === "Delivery" ? expense.amount : 0),
+          packaging: summary.packaging + (expense.category === "Packaging" ? expense.amount : 0),
+          other:
+            summary.other +
+            (!["Boost Page", "Delivery", "Packaging"].includes(expense.category) ? expense.amount : 0)
+        }),
+        {
+          totalExpense: 0,
+          boostPage: 0,
+          delivery: 0,
+          packaging: 0,
+          other: 0
+        }
+      ),
+    [filteredExpenses]
+  );
+
   const orderQuantity = Number(orderForm.quantity) || 0;
   const orderDiscount = Number(orderForm.discount) || 0;
-  const orderDeliveryFee = Number(orderForm.deliveryFee) || 0;
+  const orderDeliveryFee = parseDeliveryFeeInput(orderForm.deliveryFee || "0");
+  const orderDeliveryFeeLabel = isFreeDeliveryInput(orderForm.deliveryFee || "")
+    ? "FREE"
+    : currency.format(orderDeliveryFee);
+  const periodRecordDateLabel = getPeriodRecordDateLabel(orderPeriod, periodRecordDate);
   const orderSubtotal = selectedOrderBook ? selectedOrderBook.sellPrice * orderQuantity : 0;
   const orderTotal = Math.max(orderSubtotal - orderDiscount, 0);
   const invoiceDraftItems = useMemo<InvoiceDraftLine[]>(
@@ -381,7 +572,8 @@ function App() {
   const invoiceDraftLineTotal = invoiceDraftItems.reduce((sum, line) => sum + line.total, 0);
   const invoiceDraftProfit = invoiceDraftLineTotal - invoiceDraftCost;
   const invoiceDraftGrandTotal = invoiceDraftLineTotal + orderDeliveryFee;
-  const dashboardProfit = report.finance.actualNetAfterExpense;
+  const dashboardGrossProfit = orderRecordSummary.profit;
+  const dashboardProfit = dashboardGrossProfit - expensePeriodSummary.totalExpense;
   const dashboardMargin = report.finance.projectedMargin;
   const productStockQuantity = Number(bookForm.stock) || 0;
   const productPaidStockQuantity = Math.max(productStockQuantity - Math.floor(productStockQuantity / 6), 0);
@@ -402,6 +594,45 @@ function App() {
       bookImagePreviews.forEach((preview) => URL.revokeObjectURL(preview.url));
     };
   }, [bookImagePreviews]);
+
+  const handleLoginSubmit = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+
+    try {
+      setLoginSubmitting(true);
+      setLoginError(null);
+      setError(null);
+      const session = await login({
+        email: loginForm.email.trim(),
+        password: loginForm.password
+      });
+      setIsAuthenticated(true);
+      setAdminEmail(session.email);
+      setLoginForm((current) => ({ ...current, password: "" }));
+      await loadAll();
+    } catch (requestError) {
+      setLoginError(requestError instanceof Error ? requestError.message : "Login failed.");
+    } finally {
+      setLoginSubmitting(false);
+      setAuthChecking(false);
+    }
+  };
+
+  const handleLogout = async () => {
+    try {
+      await logout();
+    } catch {
+      // no-op
+    } finally {
+      setIsAuthenticated(false);
+      setBooks([]);
+      setOrders([]);
+      setExpenses([]);
+      setReport(emptyReport);
+      setError(null);
+      setActiveSection("dashboard");
+    }
+  };
 
   const resetBookForm = () => {
     setBookForm(initialBookForm);
@@ -464,6 +695,8 @@ function App() {
       return;
     }
 
+    const scrollLeft = window.scrollX;
+    const scrollTop = window.scrollY;
     setStockAdjustingBookId(book.id);
     setError(null);
 
@@ -475,11 +708,35 @@ function App() {
 
       await addBookStock(book.id, payload);
       await loadAll();
-      setActiveSection("products");
+      window.requestAnimationFrame(() => {
+        window.scrollTo(scrollLeft, scrollTop);
+      });
     } catch (requestError) {
       setError(requestError instanceof Error ? requestError.message : "មិនអាចកែប្រែស្តុកបានទេ។");
     } finally {
       setStockAdjustingBookId(null);
+    }
+  };
+
+  const handleDeleteBook = async (book: Book) => {
+    const confirmed = window.confirm(`លុបសៀវភៅ "${book.title}" ពីបញ្ជី? វិក្កយបត្រចាស់ៗនឹងនៅរក្សាទុកដដែល។`);
+
+    if (!confirmed) {
+      return;
+    }
+
+    try {
+      setError(null);
+      setBookSuccessMessage(null);
+      await deleteBook(book.id);
+      if (editingBookId === book.id) {
+        resetBookForm();
+      }
+      setBookSuccessMessage(`បានលុប ${book.title} ពីបញ្ជីសៀវភៅ។`);
+      await loadAll();
+      setActiveSection("products");
+    } catch (requestError) {
+      setError(requestError instanceof Error ? requestError.message : "មិនអាចលុបសៀវភៅបានទេ។");
     }
   };
 
@@ -543,6 +800,7 @@ function App() {
       quantity: "1",
       discount: "0"
     }));
+    setBookPickerOpen(false);
   };
 
   const handleRemoveInvoiceItem = (index: number) => {
@@ -562,7 +820,9 @@ function App() {
 
       const payload: CreateInvoicePayload = {
         customerName: orderForm.customerName.trim(),
-        deliveryFee: Number(orderForm.deliveryFee || 0),
+        customerPhone: orderForm.customerPhone.trim(),
+        customerAddress: orderForm.customerAddress.trim(),
+        deliveryFee: parseDeliveryFeeInput(orderForm.deliveryFee || "0"),
         items: invoiceDraftItems.map((line) => ({
           bookId: Number(line.item.bookId),
           quantity: Number(line.item.quantity),
@@ -573,6 +833,7 @@ function App() {
       await createInvoice(payload);
       setOrderForm(initialOrderForm);
       setInvoiceItems([]);
+      setOrdersViewMode("list");
       setOrderSuccessMessage("បានរក្សាទុកការលក់ និងកែប្រែស្តុករួចរាល់។");
       await loadAll();
       setActiveSection("orders");
@@ -613,19 +874,24 @@ function App() {
         <head>
           <title>${escapeHtml(title)}</title>
           <style>
-            body { font-family: "Times New Roman", Times, serif; margin: 32px; color: #111827; }
+            body { font-family: "Noto Sans Khmer", "Khmer OS Siemreap", Arial, sans-serif; margin: 32px; color: #111827; }
             .invoice { max-width: 760px; margin: 0 auto; }
             .header { display: flex; justify-content: space-between; border-bottom: 2px solid #111827; padding-bottom: 14px; margin-bottom: 22px; }
             h1, h2, p { margin: 0; }
             h1 { letter-spacing: 0.1em; font-size: 28px; }
             h2 { font-size: 20px; margin-bottom: 12px; }
             .muted { color: #6b7280; margin-top: 6px; }
+            .customer-info { display: grid; gap: 6px; margin-bottom: 14px; }
             table { width: 100%; border-collapse: collapse; margin-top: 16px; }
             th, td { border: 1px solid #d1d5db; padding: 10px; text-align: left; }
             th { background: #f3f4f6; }
             .totals { margin-top: 18px; margin-left: auto; width: 280px; }
             .totals div { display: flex; justify-content: space-between; padding: 8px 0; border-bottom: 1px solid #e5e7eb; }
             .total { font-size: 18px; font-weight: 700; }
+            .invoice-footer { margin-top: 28px; padding-top: 12px; border-top: 1px dashed #cbd5e1; text-align: center; }
+            .invoice-footer p { margin: 0; line-height: 1.6; }
+            .invoice-footer .thanks { font-size: 15px; font-weight: 700; letter-spacing: 0.02em; }
+            .invoice-footer .note { margin-top: 4px; color: #64748b; font-size: 13px; }
             @media print { button { display: none; } body { margin: 18px; } }
           </style>
         </head>
@@ -637,13 +903,79 @@ function App() {
     printWindow.print();
   };
 
-  const handlePrintInvoice = (invoice: InvoiceGroup) => {
+  const handlePrintCustomerInvoice = (invoice: InvoiceGroup) => {
+    const deliveryFeeDisplay = invoice.deliveryFee > 0 ? currency.format(invoice.deliveryFee) : "FREE";
     const rows = invoice.items
       .map(
         (order) => `
           <tr>
             <td>${escapeHtml(order.bookTitle)}</td>
             <td>${order.quantity}</td>
+            <td>${currency.format(order.unitSellPrice)}</td>
+            <td>${currency.format(order.totalAmount)}</td>
+          </tr>
+        `
+      )
+      .join("");
+
+    const body = `
+      <main class="invoice">
+        <section class="header">
+          <div>
+            <h1>BOOKIFY</h1>
+            <p class="muted">វិក្កយបត្រអតិថិជន</p>
+          </div>
+          <div>
+            <p><strong>លេខវិក្កយបត្រ:</strong> ${escapeHtml(invoice.invoiceCode)}</p>
+            <p><strong>ថ្ងៃខែ:</strong> ${new Date(invoice.orderedAt).toLocaleString()}</p>
+          </div>
+        </section>
+
+        <h2>ព័ត៌មានអតិថិជន</h2>
+        <section class="customer-info">
+          <p><strong>ឈ្មោះ:</strong> ${escapeHtml(invoice.customerName)}</p>
+          <p><strong>លេខទូរស័ព្ទ:</strong> ${escapeHtml(invoice.customerPhone || "-")}</p>
+          <p><strong>អាសយដ្ឋាន:</strong> ${escapeHtml(invoice.customerAddress || "-")}</p>
+        </section>
+
+        <table>
+          <thead>
+            <tr>
+              <th>សៀវភៅ</th>
+              <th>ចំនួន</th>
+              <th>តម្លៃ</th>
+              <th>សរុប</th>
+            </tr>
+          </thead>
+          <tbody>${rows}</tbody>
+        </table>
+
+        <section class="totals">
+          <div><span>សរុបសៀវភៅ</span><strong>${currency.format(invoice.subtotal)}</strong></div>
+          <div><span>បញ្ចុះតម្លៃ</span><strong>${currency.format(invoice.discount)}</strong></div>
+          <div><span>ថ្លៃដឹក</span><strong>${deliveryFeeDisplay}</strong></div>
+          <div class="total"><span>តម្លៃសរុប</span><strong>${currency.format(invoice.total)}</strong></div>
+        </section>
+
+        <section class="invoice-footer">
+          <p class="thanks">Bookify — Thank you for supporting us!</p>
+          <p class="note">សូមអរគុណដែលបានគាំទ្រហាងរបស់យើង។</p>
+        </section>
+      </main>
+    `;
+
+    openPrintWindow(`Bookify វិក្កយបត្រអតិថិជន ${invoice.invoiceCode}`, body);
+  };
+
+  const handlePrintShopInvoice = (invoice: InvoiceGroup) => {
+    const deliveryFeeDisplay = invoice.deliveryFee > 0 ? currency.format(invoice.deliveryFee) : "FREE";
+    const rows = invoice.items
+      .map(
+        (order) => `
+          <tr>
+            <td>${escapeHtml(order.bookTitle)}</td>
+            <td>${order.quantity}</td>
+            <td>${currency.format(order.unitBuyPrice)}</td>
             <td>${currency.format(order.unitSellPrice)}</td>
             <td>${currency.format(order.discount)}</td>
             <td>${currency.format(order.totalAmount)}</td>
@@ -657,7 +989,7 @@ function App() {
         <section class="header">
           <div>
             <h1>BOOKIFY</h1>
-            <p class="muted">វិក្កយបត្រលក់សៀវភៅ</p>
+            <p class="muted">វិក្កយបត្រហាង</p>
           </div>
           <div>
             <p><strong>លេខវិក្កយបត្រ:</strong> ${escapeHtml(invoice.invoiceCode)}</p>
@@ -665,14 +997,19 @@ function App() {
           </div>
         </section>
 
-        <h2>អតិថិជន</h2>
-        <p>${escapeHtml(invoice.customerName)}</p>
+        <h2>ព័ត៌មានអតិថិជន</h2>
+        <section class="customer-info">
+          <p><strong>ឈ្មោះ:</strong> ${escapeHtml(invoice.customerName)}</p>
+          <p><strong>លេខទូរស័ព្ទ:</strong> ${escapeHtml(invoice.customerPhone || "-")}</p>
+          <p><strong>អាសយដ្ឋាន:</strong> ${escapeHtml(invoice.customerAddress || "-")}</p>
+        </section>
 
         <table>
           <thead>
             <tr>
               <th>សៀវភៅ</th>
               <th>ចំនួន</th>
+              <th>លុយដើម</th>
               <th>តម្លៃលក់</th>
               <th>បញ្ចុះ</th>
               <th>សរុប</th>
@@ -683,15 +1020,20 @@ function App() {
 
         <section class="totals">
           <div><span>លុយដើម</span><strong>${currency.format(invoice.cost)}</strong></div>
-          <div><span>លុយចំណេញ</span><strong>${currency.format(invoice.profit)}</strong></div>
-          <div><span>ថ្លៃដឹក</span><strong>${currency.format(invoice.deliveryFee)}</strong></div>
+          <div><span>ចំណេញ</span><strong>${currency.format(invoice.profit)}</strong></div>
+          <div><span>ថ្លៃដឹក</span><strong>${deliveryFeeDisplay}</strong></div>
           <div><span>បញ្ចុះតម្លៃ</span><strong>${currency.format(invoice.discount)}</strong></div>
           <div class="total"><span>សរុបត្រូវបង់</span><strong>${currency.format(invoice.total)}</strong></div>
+        </section>
+
+        <section class="invoice-footer">
+          <p class="thanks">Bookify — Thank you for supporting us!</p>
+          <p class="note">សូមអរគុណដែលបានគាំទ្រហាងរបស់យើង។</p>
         </section>
       </main>
     `;
 
-    openPrintWindow(`Bookify វិក្កយបត្រ ${invoice.invoiceCode}`, body);
+    openPrintWindow(`Bookify វិក្កយបត្រហាង ${invoice.invoiceCode}`, body);
   };
 
   const handlePrintOrderReport = () => {
@@ -788,9 +1130,10 @@ function App() {
       };
 
       await createExpense(payload);
+      setPeriodRecordDate(payload.spentOn);
       setExpenseForm({
         ...initialExpenseForm,
-        spentOn: new Date().toISOString().slice(0, 10)
+        spentOn: toDateInputValue(new Date())
       });
       setExpenseSuccessMessage("Expense saved successfully.");
       await loadAll();
@@ -804,26 +1147,72 @@ function App() {
     }
   };
 
+  const handleDeleteExpense = async (expense: Expense) => {
+    const confirmed = window.confirm(`លុបចំណាយ "${expense.note}"?`);
+
+    if (!confirmed) {
+      return;
+    }
+
+    try {
+      setError(null);
+      await deleteExpense(expense.id);
+      await loadAll();
+    } catch (requestError) {
+      setError(requestError instanceof Error ? requestError.message : "មិនអាចលុបចំណាយបានទេ។");
+    }
+  };
+
   const renderDashboard = () => (
     <>
+      <div className="period-toolbar">
+        <div>
+          <p className="section-label">រយៈពេល</p>
+          <h2>តាមដានចំណូលប្រចាំ{orderPeriodLabels[orderPeriod]}</h2>
+        </div>
+        <div className="period-tabs" aria-label="Dashboard period">
+          {(["daily", "weekly", "monthly", "all"] as OrderPeriod[]).map((period) => (
+            <button
+              key={period}
+              type="button"
+              className={`period-tab ${orderPeriod === period ? "active" : ""}`}
+              onClick={() => setOrderPeriod(period)}
+            >
+              {orderPeriodLabels[period]}
+            </button>
+          ))}
+        </div>
+        {orderPeriod === "daily" ? (
+          <label className="period-date-control">
+            ថ្ងៃកំណត់ត្រា
+            <input
+              type="date"
+              value={periodRecordDate}
+              onChange={(event) => setPeriodRecordDate(event.target.value)}
+            />
+          </label>
+        ) : null}
+        <p className="period-record-date">កំណត់ត្រា៖ {periodRecordDateLabel}</p>
+      </div>
+
       <section className="stats-grid stats-grid-wide">
-        <article className="stat-card">
+        <article className="stat-card finance-card income-card">
           <span>ចំណូលសរុប</span>
-          <strong>{currency.format(report.finance.actualNetSales)}</strong>
+          <strong>{currency.format(orderRecordSummary.netSales)}</strong>
         </article>
-        <article className="stat-card">
-          <span>ចំណេញក្រោយចំណាយ</span>
+        <article className="stat-card finance-card profit-card">
+          <span>ចំណេញ</span>
           <strong className={dashboardProfit >= 0 ? "profit-positive" : "profit-negative"}>
             {currency.format(dashboardProfit)}
           </strong>
         </article>
-        <article className="stat-card">
-          <span>ចំណាយសរុប</span>
-          <strong>{currency.format(report.expenses.totalExpense)}</strong>
+        <article className="stat-card finance-card cost-card">
+          <span>លុយដើម</span>
+          <strong>{currency.format(orderRecordSummary.cost)}</strong>
         </article>
-        <article className="stat-card">
-          <span>ចំនួនវិក្កយបត្រ</span>
-          <strong>{report.orders.totalOrders}</strong>
+        <article className="stat-card finance-card expense-card">
+          <span>ចំណាយ</span>
+          <strong>{currency.format(expensePeriodSummary.totalExpense)}</strong>
         </article>
       </section>
 
@@ -832,35 +1221,33 @@ function App() {
           <div className="panel-header">
             <div>
               <p className="section-label">ហិរញ្ញវត្ថុ</p>
-              <h2>សរុបចំណូល និងចំណេញ</h2>
+              <h2>សរុបគ្រប់គ្រងហាង</h2>
             </div>
           </div>
 
           <div className="stack-list">
             <div className="stack-row">
-              <span>ចំណូលមុនបញ្ចុះតម្លៃ</span>
-              <strong>{currency.format(report.orders.grossSales)}</strong>
+              <span>ចំណូលសរុប</span>
+              <strong>{currency.format(orderRecordSummary.netSales)}</strong>
             </div>
             <div className="stack-row">
-              <span>បញ្ចុះតម្លៃសរុប</span>
-              <strong>{currency.format(report.orders.totalDiscount)}</strong>
+              <span>លុយដើម</span>
+              <strong>{currency.format(orderRecordSummary.cost)}</strong>
             </div>
             <div className="stack-row">
-              <span>ចំណូលសុទ្ធ</span>
-              <strong>{currency.format(report.finance.actualNetSales)}</strong>
+              <span>ចំណេញមុនចំណាយ</span>
+              <strong className={dashboardGrossProfit >= 0 ? "profit-positive" : "profit-negative"}>
+                {currency.format(dashboardGrossProfit)}
+              </strong>
             </div>
             <div className="stack-row">
               <span>ចំណាយ</span>
-              <strong>{currency.format(report.expenses.totalExpense)}</strong>
+              <strong>{currency.format(expensePeriodSummary.totalExpense)}</strong>
             </div>
             <div className="stack-row">
-              <span>ចំណេញក្រោយចំណាយ</span>
-              <strong
-                className={
-                  report.finance.actualNetAfterExpense >= 0 ? "profit-positive" : "profit-negative"
-                }
-              >
-                {currency.format(report.finance.actualNetAfterExpense)}
+              <span>ចំណេញសុទ្ធ</span>
+              <strong className={dashboardProfit >= 0 ? "profit-positive" : "profit-negative"}>
+                {currency.format(dashboardProfit)}
               </strong>
             </div>
           </div>
@@ -877,11 +1264,11 @@ function App() {
           <div className="stack-list">
             <div className="stack-row">
               <span>បញ្ជីលក់ទាំងអស់</span>
-              <strong>{report.orders.totalOrders}</strong>
+              <strong>{orderRecordSummary.orderCount}</strong>
             </div>
             <div className="stack-row">
               <span>សៀវភៅបានលក់</span>
-              <strong>{report.orders.soldUnits}</strong>
+              <strong>{orderRecordSummary.soldUnits}</strong>
             </div>
             <div className="stack-row">
               <span>ចំណេញស្តុករំពឹងទុក</span>
@@ -1109,22 +1496,74 @@ function App() {
             <button type="button" className="primary-button" onClick={handleAddProductClick}>
               បន្ថែមសៀវភៅ
             </button>
+            <button
+              type="button"
+              className="secondary-button"
+              onClick={() => setOrdersViewMode("list")}
+            >
+              អតិថិជនកម្មង់
+            </button>
+          </div>
+          <div className="panel-actions">
+            <button
+              type="button"
+              className="secondary-button"
+              onClick={() => setOrdersViewMode("list")}
+            >
+              បញ្ជីកម្មង់អតិថិជន
+            </button>
+          </div>
+          <div className="panel-actions">
+            <button
+              type="button"
+              className="secondary-button"
+              onClick={() => setOrdersViewMode("list")}
+            >
+              បញ្ជីកម្មង់អតិថិជន
+            </button>
           </div>
         </div>
 
-        {renderBookTable(books, "មិនទាន់មានសៀវភៅទេ។")}
+        <div className="product-toolbar">
+          <label>
+            ស្វែងរកសៀវភៅ
+            <input
+              value={productQuery}
+              onChange={(event) => setProductQuery(event.target.value)}
+              placeholder="ស្វែងរកតាមចំណងជើង ប្រភេទ តម្លៃ ឬស្តុក"
+            />
+          </label>
+          {productQuery ? (
+            <button type="button" className="secondary-button" onClick={() => setProductQuery("")}>
+              សម្អាត
+            </button>
+          ) : null}
+        </div>
+
+        {renderBookTable(filteredBooks, productQuery ? "រកមិនឃើញសៀវភៅតាមពាក្យស្វែងរកនេះទេ។" : "មិនទាន់មានសៀវភៅទេ។")}
       </article>
     );
   };
 
   const renderInvoiceOrders = () => (
-    <section className="two-column-grid two-column-wide">
-      <article className="panel invoice-builder-panel">
+    <section className="two-column-grid two-column-wide orders-fullscreen-layout">
+      {ordersViewMode === "create" ? (
+      <article className="panel invoice-builder-panel orders-create-panel">
         <div className="panel-header">
           <div>
             <p className="section-label">លក់ថ្មី</p>
             <h2>បង្កើតវិក្កយបត្រ</h2>
           </div>
+        </div>
+
+        <div className="panel-actions">
+          <button
+            type="button"
+            className="secondary-button"
+            onClick={() => setOrdersViewMode("list")}
+          >
+            បញ្ជីកម្មង់អតិថិជន
+          </button>
         </div>
 
         <form className="form-grid" onSubmit={handleOrderSubmit}>
@@ -1140,38 +1579,85 @@ function App() {
           </label>
 
           <label>
-            ថ្លៃដឹក
+            លេខទូរស័ព្ទ
             <input
-              type="number"
-              min="0"
-              step="0.01"
-              value={orderForm.deliveryFee}
+              value={orderForm.customerPhone}
               onChange={(event) =>
-                setOrderForm({ ...orderForm, deliveryFee: event.target.value })
+                setOrderForm({ ...orderForm, customerPhone: event.target.value })
               }
+              placeholder="លេខទូរស័ព្ទអតិថិជន"
             />
           </label>
 
-          <div className="invoice-line-card">
-            <div className="row-grid">
-              <label>
-                សៀវភៅ
-                <select
-                  value={orderForm.bookId}
-                  onChange={(event) =>
-                    setOrderForm({ ...orderForm, bookId: event.target.value })
-                  }
-                >
-                  <option value="">ជ្រើសរើសសៀវភៅ</option>
-                  {books.map((book) => (
-                    <option key={book.id} value={book.id} disabled={book.stock <= 0}>
-                      {book.title} - {currency.format(book.sellPrice)} - ស្តុក {book.stock}
-                    </option>
-                  ))}
-                </select>
-              </label>
+          <label className="customer-address-field">
+            អាសយដ្ឋាន
+            <textarea
+              rows={2}
+              value={orderForm.customerAddress}
+              onChange={(event) =>
+                setOrderForm({ ...orderForm, customerAddress: event.target.value })
+              }
+              placeholder="អាសយដ្ឋានអតិថិជន"
+            />
+          </label>
 
-              <div className="row-grid">
+          <label>
+            ថ្លៃដឹក
+            <input
+              inputMode="decimal"
+              value={orderForm.deliveryFee}
+              onChange={(event) =>
+                setOrderForm((currentForm) => ({ ...currentForm, deliveryFee: event.target.value }))
+              }
+              onBlur={(event) =>
+                setOrderForm((currentForm) => ({
+                  ...currentForm,
+                  deliveryFee: formatDeliveryFeeInput(event.target.value)
+                }))
+              }
+              placeholder="$2.00"
+            />
+            <span className="field-hint">បញ្ចូលជា $2.00 ឬ FREE</span>
+          </label>
+
+          <div className="invoice-line-card">
+            <div className="invoice-line-controls">
+              <div className="book-picker-field">
+                <span className="field-label">សៀវភៅ</span>
+                <button
+                  type="button"
+                  className="book-picker-trigger"
+                  onClick={() => setBookPickerOpen((isOpen) => !isOpen)}
+                >
+                  <span>{selectedOrderBookLabel}</span>
+                  <span aria-hidden="true">v</span>
+                </button>
+                {bookPickerOpen ? (
+                  <div className="book-picker-menu" role="listbox">
+                    {books.map((book) => (
+                      <button
+                        key={book.id}
+                        type="button"
+                        className={`book-picker-option ${
+                          Number(orderForm.bookId) === book.id ? "selected" : ""
+                        }`}
+                        disabled={book.stock <= 0}
+                        onClick={() => {
+                          setOrderForm({ ...orderForm, bookId: String(book.id) });
+                          setBookPickerOpen(false);
+                        }}
+                      >
+                        <strong>{book.title}</strong>
+                        <span>
+                          {currency.format(book.sellPrice)} - ស្តុក {book.stock}
+                        </span>
+                      </button>
+                    ))}
+                  </div>
+                ) : null}
+              </div>
+
+              <div className="invoice-line-inputs">
                 <label>
                   ចំនួន
                   <input
@@ -1268,7 +1754,7 @@ function App() {
             </div>
             <div>
               <span>ថ្លៃដឹក</span>
-              <strong>{currency.format(orderDeliveryFee)}</strong>
+              <strong>{orderDeliveryFeeLabel}</strong>
             </div>
             <div>
               <span>បញ្ចុះតម្លៃ</span>
@@ -1300,14 +1786,23 @@ function App() {
           </div>
         </form>
       </article>
+      ) : null}
 
-      <article className="panel">
+      {ordersViewMode === "list" ? (
+      <article className="panel orders-list-panel">
         <div className="panel-header">
           <div>
             <p className="section-label">ការលក់</p>
             <h2>កំណត់ត្រាវិក្កយបត្រ</h2>
           </div>
           <div className="panel-actions">
+            <button
+              type="button"
+              className="primary-button"
+              onClick={() => setOrdersViewMode("create")}
+            >
+              អតិថិជនកម្មង់
+            </button>
             <button type="button" className="secondary-button" onClick={handleExportOrderReport}>
               នាំចេញ {orderPeriodLabels[orderPeriod]}
             </button>
@@ -1328,6 +1823,29 @@ function App() {
               {orderPeriodLabels[period]}
             </button>
           ))}
+        </div>
+        {orderPeriod === "daily" ? (
+          <label className="period-date-control">
+            ថ្ងៃកំណត់ត្រា
+            <input
+              type="date"
+              value={periodRecordDate}
+              onChange={(event) => setPeriodRecordDate(event.target.value)}
+            />
+          </label>
+        ) : null}
+        <p className="period-record-date">កំណត់ត្រា៖ {periodRecordDateLabel}</p>
+
+        <div className="invoice-search-toolbar">
+          <label>
+            Search customer
+            <input
+              type="text"
+              value={invoiceQuery}
+              onChange={(event) => setInvoiceQuery(event.target.value)}
+              placeholder="Search by customer name or phone number"
+            />
+          </label>
         </div>
 
         <section className="inline-metrics">
@@ -1379,7 +1897,14 @@ function App() {
                 </tr>
               </thead>
               <tbody>
-                {filteredInvoices.map((invoice) => (
+                {searchedInvoices.length === 0 ? (
+                  <tr>
+                    <td colSpan={10}>
+                      <div className="table-empty">No invoice matches this customer name or phone number.</div>
+                    </td>
+                  </tr>
+                ) : (
+                  searchedInvoices.map((invoice) => (
                   <tr key={invoice.invoiceCode}>
                     <td>
                       <strong>{invoice.invoiceCode}</strong>
@@ -1411,9 +1936,16 @@ function App() {
                         <button
                           type="button"
                           className="table-action"
-                          onClick={() => handlePrintInvoice(invoice)}
+                          onClick={() => handlePrintCustomerInvoice(invoice)}
                         >
-                          វិក្កយបត្រ
+                          វិក្កយបត្រអតិថិជន
+                        </button>
+                        <button
+                          type="button"
+                          className="table-action"
+                          onClick={() => handlePrintShopInvoice(invoice)}
+                        >
+                          វិក្កយបត្រហាង
                         </button>
                         <button
                           type="button"
@@ -1425,12 +1957,14 @@ function App() {
                       </div>
                     </td>
                   </tr>
-                ))}
+                  ))
+                )}
               </tbody>
             </table>
           </div>
         )}
       </article>
+      ) : null}
     </section>
   );
 
@@ -1569,6 +2103,17 @@ function App() {
             </button>
           ))}
         </div>
+        {orderPeriod === "daily" ? (
+          <label className="period-date-control">
+            ថ្ងៃកំណត់ត្រា
+            <input
+              type="date"
+              value={periodRecordDate}
+              onChange={(event) => setPeriodRecordDate(event.target.value)}
+            />
+          </label>
+        ) : null}
+        <p className="period-record-date">កំណត់ត្រា៖ {periodRecordDateLabel}</p>
 
         <section className="inline-metrics">
           <div className="status-box">
@@ -1633,7 +2178,7 @@ function App() {
                               invoiceItem.invoiceCode === (order.invoiceCode || `INV-${order.id}`)
                           );
                           if (invoice) {
-                            handlePrintInvoice(invoice);
+                            handlePrintCustomerInvoice(invoice);
                           }
                         }}
                       >
@@ -1722,47 +2267,80 @@ function App() {
         <div className="panel-header">
           <div>
             <p className="section-label">សរុបចំណាយ</p>
-            <h2>កំណត់ត្រាដែលបានរក្សាទុក</h2>
+            <h2>កំណត់ត្រាចំណាយ{orderPeriodLabels[orderPeriod]}</h2>
           </div>
         </div>
+
+        <div className="period-tabs" aria-label="Expense period">
+          {(["daily", "weekly", "monthly", "all"] as OrderPeriod[]).map((period) => (
+            <button
+              key={period}
+              type="button"
+              className={`period-tab ${orderPeriod === period ? "active" : ""}`}
+              onClick={() => setOrderPeriod(period)}
+            >
+              {orderPeriodLabels[period]}
+            </button>
+          ))}
+        </div>
+        {orderPeriod === "daily" ? (
+          <label className="period-date-control">
+            ថ្ងៃកំណត់ត្រា
+            <input
+              type="date"
+              value={periodRecordDate}
+              onChange={(event) => setPeriodRecordDate(event.target.value)}
+            />
+          </label>
+        ) : null}
+        <p className="period-record-date">កំណត់ត្រា៖ {periodRecordDateLabel}</p>
 
         <div className="stack-list">
           <div className="stack-row">
             <span>ចំណាយសរុប</span>
-            <strong>{currency.format(report.expenses.totalExpense)}</strong>
+            <strong>{currency.format(expensePeriodSummary.totalExpense)}</strong>
           </div>
           <div className="stack-row">
             <span>Boost page</span>
-            <strong>{currency.format(report.expenses.boostPage)}</strong>
+            <strong>{currency.format(expensePeriodSummary.boostPage)}</strong>
           </div>
           <div className="stack-row">
             <span>ដឹកជញ្ជូន</span>
-            <strong>{currency.format(report.expenses.delivery)}</strong>
+            <strong>{currency.format(expensePeriodSummary.delivery)}</strong>
           </div>
           <div className="stack-row">
             <span>វេចខ្ចប់</span>
-            <strong>{currency.format(report.expenses.packaging)}</strong>
+            <strong>{currency.format(expensePeriodSummary.packaging)}</strong>
           </div>
           <div className="stack-row">
             <span>ផ្សេងៗ</span>
-            <strong>{currency.format(report.expenses.other)}</strong>
+            <strong>{currency.format(expensePeriodSummary.other)}</strong>
           </div>
         </div>
 
         <div className="subsection-title">បញ្ជីចំណាយ</div>
-        {expenses.length === 0 ? (
-          <div className="empty-state compact">មិនទាន់មានចំណាយទេ។</div>
+        {filteredExpenses.length === 0 ? (
+          <div className="empty-state compact">មិនទាន់មានចំណាយក្នុងរយៈពេលនេះទេ។</div>
         ) : (
           <div className="expense-list">
-            {expenses.map((expense) => (
+            {filteredExpenses.map((expense) => (
               <div className="expense-item" key={expense.id}>
                 <div>
                   <strong>{expense.note}</strong>
                   <span>
-                    {expense.category} | {new Date(expense.spentOn).toLocaleDateString()}
+                    {expense.category} | {formatCalendarDate(expense.spentOn)}
                   </span>
                 </div>
-                <strong>{currency.format(expense.amount)}</strong>
+                <div className="expense-actions">
+                  <strong>{currency.format(expense.amount)}</strong>
+                  <button
+                    type="button"
+                    className="table-action danger-action"
+                    onClick={() => handleDeleteExpense(expense)}
+                  >
+                    លុប
+                  </button>
+                </div>
               </div>
             ))}
           </div>
@@ -1775,15 +2353,11 @@ function App() {
     <>
       <section className="stats-grid">
         <article className="stat-card">
-          <span>ចំណូលសុទ្ធ</span>
+          <span>ចំណូលសរុប</span>
           <strong>{currency.format(report.finance.actualNetSales)}</strong>
         </article>
         <article className="stat-card">
-          <span>បញ្ចុះតម្លៃ</span>
-          <strong>{currency.format(report.orders.totalDiscount)}</strong>
-        </article>
-        <article className="stat-card">
-          <span>ចំណេញក្រោយចំណាយ</span>
+          <span>ចំណេញ</span>
           <strong
             className={
               report.finance.actualNetAfterExpense >= 0 ? "profit-positive" : "profit-negative"
@@ -1793,12 +2367,16 @@ function App() {
           </strong>
         </article>
         <article className="stat-card">
-          <span>ចំណូលរំពឹងទុក</span>
-          <strong>{currency.format(report.finance.projectedRevenue)}</strong>
+          <span>លុយដើម</span>
+          <strong>{currency.format(report.orders.totalCost ?? 0)}</strong>
         </article>
         <article className="stat-card">
-          <span>សៀវភៅ</span>
-          <strong>{report.inventory.totalProducts}</strong>
+          <span>ចំណាយ</span>
+          <strong>{currency.format(report.expenses.totalExpense)}</strong>
+        </article>
+        <article className="stat-card">
+          <span>វិក្កយបត្រ</span>
+          <strong>{report.orders.totalOrders}</strong>
         </article>
       </section>
 
@@ -1953,7 +2531,14 @@ function App() {
                       className="table-action"
                       onClick={() => handleEditBook(book)}
                     >
-                    កែប្រែ
+                      កែប្រែ
+                    </button>
+                    <button
+                      type="button"
+                      className="table-action danger-action"
+                      onClick={() => handleDeleteBook(book)}
+                    >
+                      លុប
                     </button>
                   </div>
                 </td>
@@ -1993,6 +2578,56 @@ function App() {
     }
   };
 
+  if (authChecking) {
+    return (
+      <main className="auth-layout">
+        <section className="auth-card">
+          <h1>Bookify Admin</h1>
+          <p>Checking secure session...</p>
+        </section>
+      </main>
+    );
+  }
+
+  if (!isAuthenticated) {
+    return (
+      <main className="auth-layout">
+        <section className="auth-card">
+          <h1>Bookify Admin Login</h1>
+          <p>Use your admin account to access dashboard data.</p>
+          <form className="auth-form" onSubmit={handleLoginSubmit}>
+            <label>
+              Email
+              <input
+                type="email"
+                value={loginForm.email}
+                onChange={(event) =>
+                  setLoginForm((current) => ({ ...current, email: event.target.value }))
+                }
+                required
+              />
+            </label>
+            <label>
+              Password
+              <input
+                type="password"
+                value={loginForm.password}
+                onChange={(event) =>
+                  setLoginForm((current) => ({ ...current, password: event.target.value }))
+                }
+                required
+              />
+            </label>
+            {loginError ? <p className="feedback error">{loginError}</p> : null}
+            <button type="submit" className="primary-button" disabled={loginSubmitting}>
+              {loginSubmitting ? "Signing in..." : "Login"}
+            </button>
+          </form>
+        </section>
+      </main>
+    );
+  }
+
   return (
     <main className="app-layout">
       <aside className="sidebar">
@@ -2031,6 +2666,10 @@ function App() {
           <span>ប្រព័ន្ធគ្រប់គ្រងស្តុក - Bookify - Admin</span>
           <div className="admin-pill">
             <span className="admin-avatar">A</span>
+            <span className="admin-email">{adminEmail}</span>
+            <button type="button" className="topbar-logout" onClick={handleLogout}>
+              Logout
+            </button>
             អ្នកគ្រប់គ្រង
           </div>
         </header>

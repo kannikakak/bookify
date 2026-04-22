@@ -15,12 +15,32 @@ export const getWeekStart = (date: Date) => {
   return weekStart;
 };
 
+export const toDateInputValue = (date: Date) => {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+};
+const parseCalendarDate = (value: string) => {
+  const dateOnlyMatch = /^(\d{4})-(\d{2})-(\d{2})$/.exec(value);
+
+  if (dateOnlyMatch) {
+    return new Date(
+      Number(dateOnlyMatch[1]),
+      Number(dateOnlyMatch[2]) - 1,
+      Number(dateOnlyMatch[3])
+    );
+  }
+
+  return new Date(value);
+};
+
 export const isOrderInPeriod = (orderedAt: string, period: OrderPeriod) => {
   if (period === "all") {
     return true;
   }
 
-  const orderDate = new Date(orderedAt);
+  const orderDate = parseCalendarDate(orderedAt);
   const now = new Date();
 
   if (period === "daily") {

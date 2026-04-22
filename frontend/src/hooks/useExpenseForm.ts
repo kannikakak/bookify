@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { INITIAL_EXPENSE_FORM } from "../constants";
+import { toDateInputValue } from "../utils";
 import type { ExpenseFormState } from "../types/forms";
 
 export const useExpenseForm = () => {
@@ -10,7 +11,7 @@ export const useExpenseForm = () => {
   const resetForm = () => {
     setExpenseForm({
       ...INITIAL_EXPENSE_FORM,
-      spentOn: new Date().toISOString().slice(0, 10)
+      spentOn: toDateInputValue(new Date())
     });
   };
 

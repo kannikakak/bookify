@@ -68,6 +68,8 @@ export type Order = {
   bookId: number;
   bookTitle: string;
   customerName: string;
+  customerPhone: string;
+  customerAddress: string;
   quantity: number;
   paidQuantity: number;
   freeQuantity: number;
@@ -82,12 +84,16 @@ export type Order = {
 export type CreateOrderPayload = {
   bookId: number;
   customerName: string;
+  customerPhone: string;
+  customerAddress: string;
   quantity: number;
   discount: number;
 };
 
 export type CreateInvoicePayload = {
   customerName: string;
+  customerPhone: string;
+  customerAddress: string;
   deliveryFee: number;
   items: Array<{
     bookId: number;
@@ -117,6 +123,7 @@ export type ReportSummary = {
   orders: {
     totalOrders: number;
     soldUnits: number;
+    totalCost: number;
     grossSales: number;
     totalDiscount: number;
     netSales: number;
@@ -126,6 +133,11 @@ export type ReportSummary = {
     projectedMargin: number;
     projectedNetProfit: number;
     actualNetSales: number;
+    actualGrossProfit: number;
     actualNetAfterExpense: number;
   };
+};
+
+export type AuthSession = {
+  email: string;
 };

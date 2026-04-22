@@ -22,6 +22,8 @@ export type ExpenseFormState = {
 export type OrderFormState = {
   bookId: string;
   customerName: string;
+  customerPhone: string;
+  customerAddress: string;
   quantity: string;
   discount: string;
 };
