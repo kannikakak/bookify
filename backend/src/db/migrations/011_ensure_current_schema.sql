@@ -13,14 +13,71 @@ CREATE TABLE IF NOT EXISTS books (
   deleted_at TIMESTAMP NULL DEFAULT NULL
 );
 
-ALTER TABLE books
-  ADD COLUMN IF NOT EXISTS buy_price DECIMAL(10, 2) NOT NULL DEFAULT 0.00 AFTER category,
-  ADD COLUMN IF NOT EXISTS sell_price DECIMAL(10, 2) NOT NULL DEFAULT 0.00 AFTER buy_price,
-  ADD COLUMN IF NOT EXISTS low_stock_threshold INT NOT NULL DEFAULT 5 AFTER stock,
-  ADD COLUMN IF NOT EXISTS image_urls LONGTEXT NOT NULL AFTER low_stock_threshold,
-  ADD COLUMN IF NOT EXISTS created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP AFTER image_urls,
-  ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP AFTER created_at,
-  ADD COLUMN IF NOT EXISTS deleted_at TIMESTAMP NULL DEFAULT NULL AFTER updated_at;
+SET @column_exists := (
+  SELECT COUNT(*) FROM information_schema.COLUMNS
+  WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'books' AND COLUMN_NAME = 'buy_price'
+);
+SET @migration_sql := IF(@column_exists = 0, 'ALTER TABLE books ADD COLUMN buy_price DECIMAL(10, 2) NOT NULL DEFAULT 0.00 AFTER category', 'SELECT 1');
+PREPARE migration_stmt FROM @migration_sql;
+EXECUTE migration_stmt;
+DEALLOCATE PREPARE migration_stmt;
+
+SET @column_exists := (
+  SELECT COUNT(*) FROM information_schema.COLUMNS
+  WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'books' AND COLUMN_NAME = 'sell_price'
+);
+SET @migration_sql := IF(@column_exists = 0, 'ALTER TABLE books ADD COLUMN sell_price DECIMAL(10, 2) NOT NULL DEFAULT 0.00 AFTER buy_price', 'SELECT 1');
+PREPARE migration_stmt FROM @migration_sql;
+EXECUTE migration_stmt;
+DEALLOCATE PREPARE migration_stmt;
+
+SET @column_exists := (
+  SELECT COUNT(*) FROM information_schema.COLUMNS
+  WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'books' AND COLUMN_NAME = 'low_stock_threshold'
+);
+SET @migration_sql := IF(@column_exists = 0, 'ALTER TABLE books ADD COLUMN low_stock_threshold INT NOT NULL DEFAULT 5 AFTER stock', 'SELECT 1');
+PREPARE migration_stmt FROM @migration_sql;
+EXECUTE migration_stmt;
+DEALLOCATE PREPARE migration_stmt;
+
+SET @column_exists := (
+  SELECT COUNT(*) FROM information_schema.COLUMNS
+  WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'books' AND COLUMN_NAME = 'image_urls'
+);
+SET @migration_sql := IF(@column_exists = 0, 'ALTER TABLE books ADD COLUMN image_urls LONGTEXT NULL AFTER low_stock_threshold', 'SELECT 1');
+PREPARE migration_stmt FROM @migration_sql;
+EXECUTE migration_stmt;
+DEALLOCATE PREPARE migration_stmt;
+
+SET @column_exists := (
+  SELECT COUNT(*) FROM information_schema.COLUMNS
+  WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'books' AND COLUMN_NAME = 'created_at'
+);
+SET @migration_sql := IF(@column_exists = 0, 'ALTER TABLE books ADD COLUMN created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP AFTER image_urls', 'SELECT 1');
+PREPARE migration_stmt FROM @migration_sql;
+EXECUTE migration_stmt;
+DEALLOCATE PREPARE migration_stmt;
+
+SET @column_exists := (
+  SELECT COUNT(*) FROM information_schema.COLUMNS
+  WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'books' AND COLUMN_NAME = 'updated_at'
+);
+SET @migration_sql := IF(@column_exists = 0, 'ALTER TABLE books ADD COLUMN updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP AFTER created_at', 'SELECT 1');
+PREPARE migration_stmt FROM @migration_sql;
+EXECUTE migration_stmt;
+DEALLOCATE PREPARE migration_stmt;
+
+SET @column_exists := (
+  SELECT COUNT(*) FROM information_schema.COLUMNS
+  WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'books' AND COLUMN_NAME = 'deleted_at'
+);
+SET @migration_sql := IF(@column_exists = 0, 'ALTER TABLE books ADD COLUMN deleted_at TIMESTAMP NULL DEFAULT NULL AFTER updated_at', 'SELECT 1');
+PREPARE migration_stmt FROM @migration_sql;
+EXECUTE migration_stmt;
+DEALLOCATE PREPARE migration_stmt;
+
+UPDATE books SET image_urls = '[]' WHERE image_urls IS NULL;
+ALTER TABLE books MODIFY image_urls LONGTEXT NOT NULL;
 
 CREATE TABLE IF NOT EXISTS expenses (
   id INT NOT NULL AUTO_INCREMENT PRIMARY KEY,
@@ -52,14 +109,68 @@ CREATE TABLE IF NOT EXISTS sales_orders (
     ON DELETE RESTRICT
 );
 
-ALTER TABLE sales_orders
-  ADD COLUMN IF NOT EXISTS invoice_code VARCHAR(40) NULL AFTER id,
-  ADD COLUMN IF NOT EXISTS customer_phone VARCHAR(40) NOT NULL DEFAULT '' AFTER customer_name,
-  ADD COLUMN IF NOT EXISTS customer_address VARCHAR(255) NOT NULL DEFAULT '' AFTER customer_phone,
-  ADD COLUMN IF NOT EXISTS paid_quantity INT NOT NULL DEFAULT 0 AFTER quantity,
-  ADD COLUMN IF NOT EXISTS free_quantity INT NOT NULL DEFAULT 0 AFTER paid_quantity,
-  ADD COLUMN IF NOT EXISTS unit_buy_price DECIMAL(10, 2) NOT NULL DEFAULT 0.00 AFTER free_quantity,
-  ADD COLUMN IF NOT EXISTS delivery_fee DECIMAL(10, 2) NOT NULL DEFAULT 0.00 AFTER total_amount;
+SET @column_exists := (
+  SELECT COUNT(*) FROM information_schema.COLUMNS
+  WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'sales_orders' AND COLUMN_NAME = 'invoice_code'
+);
+SET @migration_sql := IF(@column_exists = 0, 'ALTER TABLE sales_orders ADD COLUMN invoice_code VARCHAR(40) NULL AFTER id', 'SELECT 1');
+PREPARE migration_stmt FROM @migration_sql;
+EXECUTE migration_stmt;
+DEALLOCATE PREPARE migration_stmt;
+
+SET @column_exists := (
+  SELECT COUNT(*) FROM information_schema.COLUMNS
+  WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'sales_orders' AND COLUMN_NAME = 'customer_phone'
+);
+SET @migration_sql := IF(@column_exists = 0, 'ALTER TABLE sales_orders ADD COLUMN customer_phone VARCHAR(40) NOT NULL DEFAULT '''' AFTER customer_name', 'SELECT 1');
+PREPARE migration_stmt FROM @migration_sql;
+EXECUTE migration_stmt;
+DEALLOCATE PREPARE migration_stmt;
+
+SET @column_exists := (
+  SELECT COUNT(*) FROM information_schema.COLUMNS
+  WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'sales_orders' AND COLUMN_NAME = 'customer_address'
+);
+SET @migration_sql := IF(@column_exists = 0, 'ALTER TABLE sales_orders ADD COLUMN customer_address VARCHAR(255) NOT NULL DEFAULT '''' AFTER customer_phone', 'SELECT 1');
+PREPARE migration_stmt FROM @migration_sql;
+EXECUTE migration_stmt;
+DEALLOCATE PREPARE migration_stmt;
+
+SET @column_exists := (
+  SELECT COUNT(*) FROM information_schema.COLUMNS
+  WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'sales_orders' AND COLUMN_NAME = 'paid_quantity'
+);
+SET @migration_sql := IF(@column_exists = 0, 'ALTER TABLE sales_orders ADD COLUMN paid_quantity INT NOT NULL DEFAULT 0 AFTER quantity', 'SELECT 1');
+PREPARE migration_stmt FROM @migration_sql;
+EXECUTE migration_stmt;
+DEALLOCATE PREPARE migration_stmt;
+
+SET @column_exists := (
+  SELECT COUNT(*) FROM information_schema.COLUMNS
+  WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'sales_orders' AND COLUMN_NAME = 'free_quantity'
+);
+SET @migration_sql := IF(@column_exists = 0, 'ALTER TABLE sales_orders ADD COLUMN free_quantity INT NOT NULL DEFAULT 0 AFTER paid_quantity', 'SELECT 1');
+PREPARE migration_stmt FROM @migration_sql;
+EXECUTE migration_stmt;
+DEALLOCATE PREPARE migration_stmt;
+
+SET @column_exists := (
+  SELECT COUNT(*) FROM information_schema.COLUMNS
+  WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'sales_orders' AND COLUMN_NAME = 'unit_buy_price'
+);
+SET @migration_sql := IF(@column_exists = 0, 'ALTER TABLE sales_orders ADD COLUMN unit_buy_price DECIMAL(10, 2) NOT NULL DEFAULT 0.00 AFTER free_quantity', 'SELECT 1');
+PREPARE migration_stmt FROM @migration_sql;
+EXECUTE migration_stmt;
+DEALLOCATE PREPARE migration_stmt;
+
+SET @column_exists := (
+  SELECT COUNT(*) FROM information_schema.COLUMNS
+  WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'sales_orders' AND COLUMN_NAME = 'delivery_fee'
+);
+SET @migration_sql := IF(@column_exists = 0, 'ALTER TABLE sales_orders ADD COLUMN delivery_fee DECIMAL(10, 2) NOT NULL DEFAULT 0.00 AFTER total_amount', 'SELECT 1');
+PREPARE migration_stmt FROM @migration_sql;
+EXECUTE migration_stmt;
+DEALLOCATE PREPARE migration_stmt;
 
 UPDATE sales_orders
 INNER JOIN books ON books.id = sales_orders.book_id
