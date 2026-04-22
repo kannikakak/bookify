@@ -29,6 +29,7 @@ body {
   overflow-x: hidden;
   font-family: "Noto Sans Khmer", "Khmer OS Siemreap", "Khmer OS Battambang", Arial, sans-serif;
   font-size: 15px;
+  line-height: 1.45;
   color: var(--text);
   background:
     linear-gradient(180deg, rgba(255, 255, 255, 0.44), rgba(255, 255, 255, 0)),
@@ -193,6 +194,10 @@ select {
 }
 
 .topbar > span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
   font-size: 0.88rem;
 }
 
@@ -207,6 +212,8 @@ select {
 
 .admin-pill {
   margin-left: auto;
+  min-width: 0;
+  flex-shrink: 0;
   display: inline-flex;
   align-items: center;
   gap: 8px;
@@ -463,6 +470,7 @@ select {
   display: flex;
   align-items: center;
   justify-content: space-between;
+  flex-wrap: wrap;
   gap: 14px;
 }
 
@@ -1189,6 +1197,7 @@ textarea {
 
 .table-wrap {
   overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
 }
 
 .inline-metrics + .table-wrap {
@@ -1440,9 +1449,17 @@ tbody td {
 }
 
 @media (max-width: 1200px) {
+  .app-layout {
+    grid-template-columns: 220px minmax(0, 1fr);
+  }
+
   .stats-grid,
   .stats-grid-wide {
     grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .product-list-panel table {
+    min-width: 1040px;
   }
 }
 
@@ -1453,9 +1470,73 @@ tbody td {
 
   .sidebar {
     position: static;
+    box-shadow: 0 8px 18px rgba(20, 27, 34, 0.16);
+  }
+
+  .logo {
+    min-height: 76px;
+    margin: 12px 12px 8px;
+    padding: 10px 12px;
+  }
+
+  .sidebar-logo-mark {
+    width: 52px;
+    height: 52px;
+  }
+
+  .brand-copy strong {
+    font-size: 1rem;
+  }
+
+  .sidebar-nav {
+    display: flex;
+    gap: 8px;
+    overflow-x: auto;
+    padding: 8px 12px 12px;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  .nav-item {
+    width: auto;
+    min-width: max-content;
+    padding: 10px 14px;
+    white-space: nowrap;
+  }
+
+  .sidebar-note {
+    display: none;
+  }
+
+  .content {
+    gap: 12px;
+  }
+
+  .topbar {
+    position: sticky;
+    top: 0;
+    z-index: 30;
+    padding: 8px 16px;
+  }
+
+  .page-header,
+  .content > .feedback,
+  .content > .period-toolbar,
+  .content > .stats-grid,
+  .content > .two-column-grid,
+  .content > .panel {
+    margin-inline: 14px;
   }
 
   .stats-grid,
+  .stats-grid-wide,
+  .stock-stats-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .status-grid {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+
   .two-column-grid,
   .two-column-wide {
     grid-template-columns: 1fr;
@@ -1481,11 +1562,40 @@ tbody td {
   .invoice-line-controls {
     grid-template-columns: 1fr;
   }
+
+  .orders-fullscreen-layout .invoice-line-card > .secondary-button {
+    justify-self: stretch;
+  }
+
+  .orders-fullscreen-layout .invoice-line-card > .secondary-button,
+  .invoice-builder-panel .button-row .primary-button,
+  .invoice-builder-panel .button-row .secondary-button {
+    width: 100%;
+  }
 }
 
 @media (max-width: 640px) {
   .content {
     padding: 0;
+    gap: 10px;
+  }
+
+  body {
+    font-size: 14px;
+  }
+
+  .logo {
+    margin: 10px 10px 6px;
+    min-height: 64px;
+  }
+
+  .sidebar-logo-mark {
+    width: 44px;
+    height: 44px;
+  }
+
+  .brand-copy span {
+    font-size: 0.58rem;
   }
 
   .topbar,
@@ -1500,10 +1610,54 @@ tbody td {
 
   .topbar {
     margin-inline: 0;
+    min-height: auto;
+    align-items: flex-start;
+    flex-wrap: wrap;
+    gap: 8px;
+    padding: 8px 12px;
+  }
+
+  .topbar > span {
+    flex: 1 1 calc(100% - 40px);
+    white-space: normal;
+    line-height: 1.45;
+  }
+
+  .admin-pill {
+    width: 100%;
+    justify-content: flex-start;
+    gap: 6px;
+    padding: 5px 8px 5px 5px;
+    border-radius: 8px;
+  }
+
+  .admin-email {
+    max-width: none;
+    flex: 1;
+  }
+
+  .topbar-logout {
+    flex-shrink: 0;
+    padding: 5px 10px;
+  }
+
+  .page-header {
+    padding-top: 2px;
+  }
+
+  .page-header h1 {
+    font-size: 1.28rem;
+    line-height: 1.35;
+  }
+
+  .page-copy {
+    font-size: 0.86rem;
   }
 
   .row-grid,
   .row-grid-three,
+  .stats-grid,
+  .stats-grid-wide,
   .status-grid,
   .stock-stats-grid,
   .inline-metrics,
@@ -1511,13 +1665,71 @@ tbody td {
     grid-template-columns: 1fr;
   }
 
+  .stat-card {
+    min-height: 72px;
+    padding: 12px 12px 12px 72px;
+  }
+
+  .stat-card::before {
+    left: 12px;
+    width: 48px;
+    height: 48px;
+    font-size: 1.05rem;
+  }
+
+  .panel {
+    padding: 12px;
+  }
+
+  .panel-header {
+    align-items: stretch;
+  }
+
+  .panel-actions,
+  .button-row {
+    width: 100%;
+  }
+
+  .panel-actions > button,
+  .button-row > button {
+    flex: 1 1 140px;
+  }
+
   .product-form-panel .row-grid,
   .product-form-panel .row-grid-three {
     padding: 12px;
   }
 
+  .product-form-panel .panel-header h2 {
+    font-size: 1.12rem;
+  }
+
+  .product-form-panel .button-row {
+    margin-inline: -12px;
+    margin-bottom: -12px;
+    padding: 12px;
+  }
+
   .product-toolbar {
     grid-template-columns: 1fr;
+  }
+
+  .product-list-panel table,
+  .inline-metrics + .table-wrap table {
+    min-width: 860px;
+  }
+
+  .product-list-panel .book-cell {
+    min-width: 220px;
+  }
+
+  .product-list-panel .book-thumb {
+    width: 44px;
+    height: 58px;
+  }
+
+  .product-list-panel .book-cell strong {
+    max-width: 150px;
   }
 
   .invoice-search-toolbar {
@@ -1532,8 +1744,53 @@ tbody td {
     grid-template-columns: 1fr;
   }
 
+  .invoice-line-card,
+  .invoice-draft-list,
+  .invoice-total-preview {
+    padding: 12px;
+  }
+
+  .expense-item {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .expense-item .expense-actions {
+    justify-content: stretch;
+  }
+
+  .expense-item .expense-actions button {
+    width: 100%;
+  }
+
   .product-form-panel .button-row .primary-button,
   .product-form-panel .button-row .secondary-button {
     width: 100%;
+  }
+}
+
+@media (max-width: 420px) {
+  .page-header,
+  .content > .feedback,
+  .content > .period-toolbar,
+  .content > .stats-grid,
+  .content > .two-column-grid,
+  .content > .panel {
+    margin-inline: 8px;
+  }
+
+  .sidebar-nav {
+    padding-inline: 8px;
+  }
+
+  .nav-item {
+    padding: 9px 12px;
+    font-size: 0.92rem;
+  }
+
+  input,
+  textarea,
+  select {
+    padding: 9px 10px;
   }
 }
