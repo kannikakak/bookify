@@ -48,6 +48,12 @@ export const PAGE_TITLE_MAP: Record<Section, { title: string; description: strin
 
 export const EXPENSE_CATEGORIES = ["Boost Page", "Delivery", "Packaging", "Other"] as const;
 
+export const BOOK_CATEGORIES = [
+  "សៀវភៅចិន",
+  "សៀវភៅកម្រិតវិទ្យាល័យ",
+  "សៀវភៅអានទូទៅ"
+] as const;
+
 export const EMPTY_REPORT: ReportSummary = {
   inventory: {
     totalProducts: 0,
@@ -86,7 +92,7 @@ export const EMPTY_REPORT: ReportSummary = {
 
 export const INITIAL_BOOK_FORM = {
   title: "",
-  category: "",
+  category: BOOK_CATEGORIES[0],
   buyPrice: "",
   sellPrice: "",
   pageCount: "",

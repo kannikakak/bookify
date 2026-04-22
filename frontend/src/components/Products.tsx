@@ -2,6 +2,7 @@ import { ChangeEvent, FormEvent, useMemo } from "react";
 import { Book, CreateBookPayload } from "../types";
 import { ReportSummary } from "../types";
 import { BookTable } from "./BookTable";
+import { BOOK_CATEGORIES } from "../constants";
 import { currency, parseCurrencyInput } from "../utils";
 import type { BookFormState } from "../types/forms";
 
@@ -84,12 +85,17 @@ export const Products = ({
 
             <label>
               Category
-              <input
+              <select
                 value={bookForm.category}
                 onChange={(event) => onFormChange({ ...bookForm, category: event.target.value })}
-                placeholder="Self Help"
                 required
-              />
+              >
+                {BOOK_CATEGORIES.map((category) => (
+                  <option key={category} value={category}>
+                    {category}
+                  </option>
+                ))}
+              </select>
             </label>
 
             <div className="row-grid">

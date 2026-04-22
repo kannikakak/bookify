@@ -96,9 +96,15 @@ type LoginFormState = {
   password: string;
 };
 
+const BOOK_CATEGORIES = [
+  "សៀវភៅចិន",
+  "សៀវភៅកម្រិតវិទ្យាល័យ",
+  "សៀវភៅអានទូទៅ"
+] as const;
+
 const initialBookForm: BookFormState = {
   title: "",
-  category: "",
+  category: BOOK_CATEGORIES[0],
   buyPrice: "",
   sellPrice: "",
   pageCount: "",
@@ -1310,12 +1316,17 @@ function App() {
 
             <label>
               ប្រភេទ
-              <input
+              <select
                 value={bookForm.category}
                 onChange={(event) => setBookForm({ ...bookForm, category: event.target.value })}
-                placeholder="Self Help"
                 required
-              />
+              >
+                {BOOK_CATEGORIES.map((category) => (
+                  <option key={category} value={category}>
+                    {category}
+                  </option>
+                ))}
+              </select>
             </label>
 
             <div className="row-grid">
