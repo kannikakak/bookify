@@ -11,7 +11,7 @@ services:
       - key: NODE_VERSION
         value: 20
       - key: FRONTEND_URL
-        value: https://bookify-web.onrender.com,https://your-vercel-app.vercel.app
+        value: https://bookify-t1fd.onrender.com
       - key: DB_HOST
         sync: false
       - key: DB_PORT
