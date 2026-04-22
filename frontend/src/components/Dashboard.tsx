@@ -217,6 +217,92 @@ export const Dashboard = ({ books, report }: DashboardProps) => {
           )}
         </article>
       </section>
+
+      <section className="full-width">
+        <article className="panel">
+          <div className="panel-header">
+            <div>
+              <p className="section-label">Inventory</p>
+              <h2>Products Stock List</h2>
+            </div>
+          </div>
+
+          {books.length === 0 ? (
+            <div className="empty-state compact">No products yet.</div>
+          ) : (
+            <div style={{ overflowX: "auto" }}>
+              <table style={{ width: "100%", borderCollapse: "collapse" }}>
+                <thead>
+                  <tr style={{ borderBottom: "2px solid #e0e0e0" }}>
+                    <th style={{ padding: "12px", textAlign: "left", fontWeight: 600 }}>ID</th>
+                    <th style={{ padding: "12px", textAlign: "left", fontWeight: 600 }}>Product Name</th>
+                    <th style={{ padding: "12px", textAlign: "left", fontWeight: 600 }}>Category</th>
+                    <th style={{ padding: "12px", textAlign: "left", fontWeight: 600 }}>Stock Status</th>
+                    <th style={{ padding: "12px", textAlign: "left", fontWeight: 600 }}>In Stock</th>
+                    <th style={{ padding: "12px", textAlign: "left", fontWeight: 600 }}>Threshold</th>
+                    <th style={{ padding: "12px", textAlign: "left", fontWeight: 600 }}>Buy Price</th>
+                    <th style={{ padding: "12px", textAlign: "left", fontWeight: 600 }}>Sell Price</th>
+                    <th style={{ padding: "12px", textAlign: "left", fontWeight: 600 }}>Profit Margin</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {books.map((book) => (
+                    <tr key={book.id} style={{ borderBottom: "1px solid #f0f0f0" }}>
+                      <td style={{ padding: "12px" }}>
+                        <strong>{book.id}</strong>
+                      </td>
+                      <td style={{ padding: "12px" }}>{book.title}</td>
+                      <td style={{ padding: "12px" }}>{book.category}</td>
+                      <td style={{ padding: "12px" }}>
+                        <span
+                          style={{
+                            padding: "4px 12px",
+                            borderRadius: "16px",
+                            fontSize: "12px",
+                            fontWeight: 600,
+                            display: "inline-block",
+                            backgroundColor:
+                              book.stockStatus === "in-stock"
+                                ? "#d4edda"
+                                : book.stockStatus === "low-stock"
+                                  ? "#fff3cd"
+                                  : "#f8d7da",
+                            color:
+                              book.stockStatus === "in-stock"
+                                ? "#155724"
+                                : book.stockStatus === "low-stock"
+                                  ? "#856404"
+                                  : "#721c24",
+                          }}
+                        >
+                          {book.stockStatus === "in-stock"
+                            ? "In Stock"
+                            : book.stockStatus === "low-stock"
+                              ? "Low Stock"
+                              : "Out of Stock"}
+                        </span>
+                      </td>
+                      <td style={{ padding: "12px", fontWeight: 600 }}>{book.stock}</td>
+                      <td style={{ padding: "12px" }}>{book.lowStockThreshold}</td>
+                      <td style={{ padding: "12px" }}>{currency.format(book.buyPrice)}</td>
+                      <td style={{ padding: "12px" }}>{currency.format(book.sellPrice)}</td>
+                      <td
+                        style={{
+                          padding: "12px",
+                          fontWeight: 600,
+                          color: book.potentialProfit >= 0 ? "#28a745" : "#dc3545",
+                        }}
+                      >
+                        {currency.format(book.potentialProfit)}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </article>
+      </section>
     </>
   );
 };
