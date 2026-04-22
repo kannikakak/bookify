@@ -66,6 +66,48 @@ export const Dashboard = ({ books, report }: DashboardProps) => {
         </article>
       </section>
 
+      <section className="stats-grid stats-grid-wide">
+        <article className="stat-card">
+          <span>Sale Revenue</span>
+          <strong>{currency.format(report.orders.netSales)}</strong>
+        </article>
+        <article className="stat-card">
+          <span>Cost of Sale</span>
+          <strong>{currency.format(report.orders.totalCost)}</strong>
+        </article>
+        <article className="stat-card">
+          <span>Gross Profit</span>
+          <strong>{currency.format(report.finance.actualGrossProfit)}</strong>
+        </article>
+        <article className="stat-card">
+          <span>Expense</span>
+          <strong>{currency.format(report.expenses.totalExpense)}</strong>
+        </article>
+        <article className="stat-card">
+          <span>Net Income/Loss</span>
+          <strong className={report.finance.actualNetAfterExpense >= 0 ? "profit-positive" : "profit-negative"}>
+            {currency.format(report.finance.actualNetAfterExpense)}
+          </strong>
+        </article>
+      </section>
+
+      <section className="stats-grid stats-grid-wide">
+        <article className="stat-card">
+          <span>Delivery Income</span>
+          <strong>{currency.format(report.orders.deliveryFee)}</strong>
+        </article>
+        <article className="stat-card">
+          <span>Delivery Expense</span>
+          <strong>{currency.format(report.expenses.delivery)}</strong>
+        </article>
+        <article className="stat-card">
+          <span>Net Income/Loss Delivery</span>
+          <strong className={(report.orders.deliveryFee - report.expenses.delivery) >= 0 ? "profit-positive" : "profit-negative"}>
+            {currency.format(report.orders.deliveryFee - report.expenses.delivery)}
+          </strong>
+        </article>
+      </section>
+
       <section className="two-column-grid">
         <article className="panel">
           <div className="panel-header">
