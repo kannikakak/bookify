@@ -3,7 +3,7 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import mysql from "mysql2/promise";
-import { buildSslConfig } from "../config/db.js";
+import { buildSslConfig, getDbConfig } from "../config/db.js";
 
 dotenv.config();
 
@@ -12,13 +12,16 @@ const __dirname = path.dirname(__filename);
 const migrationsDir = path.resolve(__dirname, "../db/migrations");
 
 const run = async () => {
-  const database = process.env.DB_NAME ?? "bookify_db";
+  const dbConfig = getDbConfig();
+  const { database } = dbConfig;
+
+  console.log(`Connecting to MySQL at ${dbConfig.host}:${dbConfig.port}/${database} as ${dbConfig.user}`);
 
   const connection = await mysql.createConnection({
-    host: process.env.DB_HOST ?? "localhost",
-    port: Number(process.env.DB_PORT ?? 3306),
-    user: process.env.DB_USER ?? "root",
-    password: process.env.DB_PASSWORD ?? "",
+    host: dbConfig.host,
+    port: dbConfig.port,
+    user: dbConfig.user,
+    password: dbConfig.password,
     ssl: buildSslConfig(),
     multipleStatements: true
   });
