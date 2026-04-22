@@ -11,7 +11,7 @@ const parseBoolean = (value: string | undefined, fallback = false) => {
   return value.trim().toLowerCase() === "true";
 };
 
-const buildSslConfig = () => {
+export const buildSslConfig = () => {
   const sslEnabled = parseBoolean(process.env.DB_SSL, false);
 
   if (!sslEnabled) {

@@ -3,6 +3,7 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import mysql from "mysql2/promise";
+import { buildSslConfig } from "../config/db.js";
 
 dotenv.config();
 
@@ -18,6 +19,7 @@ const run = async () => {
     port: Number(process.env.DB_PORT ?? 3306),
     user: process.env.DB_USER ?? "root",
     password: process.env.DB_PASSWORD ?? "",
+    ssl: buildSslConfig(),
     multipleStatements: true
   });
 
@@ -65,4 +67,3 @@ run().catch((error) => {
   console.error(error);
   process.exit(1);
 });
-
